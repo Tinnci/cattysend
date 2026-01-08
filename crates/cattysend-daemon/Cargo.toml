@@ -1,0 +1,23 @@
+[package]
+name = "cattysend-daemon"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "cattysend-daemon"
+path = "src/main.rs"
+
+[dependencies]
+cattysend-core = { path = "../cattysend-core" }
+
+tokio = { workspace = true }
+futures-util = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+hostname = "0.4"

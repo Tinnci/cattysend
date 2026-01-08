@@ -1,0 +1,37 @@
+[package]
+name = "cattysend-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+tokio = { workspace = true }
+futures-util = { workspace = true }
+tokio-stream = { workspace = true }
+tokio-util = { workspace = true }
+
+# BLE
+btleplug = { workspace = true }
+bluer = { workspace = true }
+
+# Networking
+axum = { workspace = true }
+tokio-tungstenite = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Crypto
+p256 = { workspace = true }
+aes = { workspace = true }
+ctr = { workspace = true }
+hkdf = { workspace = true }
+sha2 = { workspace = true }
+base64 = { workspace = true }
+rand = { workspace = true }
+
+# Utilities
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }

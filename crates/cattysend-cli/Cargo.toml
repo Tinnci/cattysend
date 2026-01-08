@@ -1,0 +1,21 @@
+[package]
+name = "cattysend-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "cattysend-cli"
+path = "src/main.rs"
+
+[dependencies]
+cattysend-core = { path = "../cattysend-core" }
+
+tokio = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+anyhow = { workspace = true }
+clap = { workspace = true }
+
+dirs = "5"

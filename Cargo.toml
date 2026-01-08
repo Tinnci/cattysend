@@ -1,21 +1,39 @@
-[package]
-name = "cattysend-linux"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+resolver = "2"
+members = [
+    "crates/cattysend-core",
+    "crates/cattysend-daemon",
+    "crates/cattysend-cli",
+    "xtask",
+]
 
-[dependencies]
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+authors = ["drie"]
+
+[workspace.dependencies]
+# Async runtime
 tokio = { version = "1", features = ["full"] }
+futures-util = "0.3"
+tokio-stream = "0.1"
+tokio-util = { version = "0.7", features = ["io"] }
+
+# BLE
 btleplug = "0.11"
-zbus = "4"
+bluer = { version = "0.17", features = ["full"] }
+
+# Networking
 axum = "0.7"
 reqwest = { version = "0.12", features = ["json"] }
 tokio-tungstenite = "0.24"
+
+# Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-anyhow = "1"
-tracing = "0.1"
-tracing-subscriber = "0.3"
-uuid = { version = "1", features = ["v4", "serde"] }
+
+# Crypto
 p256 = { version = "0.13", features = ["ecdh", "pkcs8"] }
 aes = "0.8"
 ctr = "0.9"
@@ -23,7 +41,13 @@ hkdf = "0.12"
 sha2 = "0.10"
 base64 = "0.22"
 rand = "0.8"
-futures-util = "0.3"
-tokio-stream = "0.1"
-bluer = { version = "0.17", features = ["full"] }
-tokio-util = { version = "0.7", features = ["io"] }
+
+# Utilities
+anyhow = "1"
+thiserror = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+clap = { version = "4", features = ["derive"] }
+hostname = "0.4"
+dirs = "5"

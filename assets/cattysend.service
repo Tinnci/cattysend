@@ -1,0 +1,23 @@
+[Unit]
+Description=Cattysend P2P File Transfer Daemon
+Documentation=https://github.com/user/cattysend
+After=network.target bluetooth.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/cattysend-daemon
+Restart=on-failure
+RestartSec=5
+Environment=RUST_LOG=info
+
+# Security hardening
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+NoNewPrivileges=true
+
+# Required capabilities for BLE/WiFi
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+
+[Install]
+WantedBy=multi-user.target
