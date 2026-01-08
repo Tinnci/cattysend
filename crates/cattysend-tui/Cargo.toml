@@ -1,0 +1,24 @@
+[package]
+name = "cattysend-tui"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "cattysend-tui"
+path = "src/main.rs"
+
+[dependencies]
+cattysend-core = { path = "../cattysend-core" }
+
+tokio = { workspace = true }
+futures-util = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+anyhow = { workspace = true }
+tracing = { workspace = true }
+
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+rand = { workspace = true }
