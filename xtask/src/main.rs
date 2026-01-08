@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use xshell::{cmd, Shell};
+use xshell::{Shell, cmd};
 
 #[derive(Parser)]
 #[command(name = "xtask", about = "Cattysend 开发任务自动化")]
@@ -59,7 +59,7 @@ fn build(sh: &Shell) -> Result<()> {
     println!("🔨 构建所有组件...");
     cmd!(
         sh,
-        "cargo build --release -p cattysend-daemon -p cattysend-cli"
+        "cargo build --release -p cattysend-daemon -p cattysend-cli -p cattysend-tui"
     )
     .run()?;
     println!("✅ 构建完成");
@@ -78,7 +78,15 @@ fn install(sh: &Shell) -> Result<()> {
     // 构建
     build(sh)?;
 
+    // 先停止已运行的服务（如果存在）
+    println!("⏹️  停止现有服务...");
+    let _ = cmd!(sh, "sudo systemctl stop cattysend.service").run();
+
+    // 等待进程完全退出
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
     // 复制二进制文件
+    println!("📋 复制二进制文件...");
     cmd!(
         sh,
         "sudo cp target/release/cattysend-daemon /usr/local/bin/"
@@ -90,6 +98,11 @@ fn install(sh: &Shell) -> Result<()> {
     )
     .run()?;
 
+    // 复制 TUI（如果存在）
+    if std::path::Path::new("target/release/cattysend-tui").exists() {
+        cmd!(sh, "sudo cp target/release/cattysend-tui /usr/local/bin/").run()?;
+    }
+
     // 复制 systemd 服务文件
     cmd!(sh, "sudo cp assets/cattysend.service /etc/systemd/system/").run()?;
 
@@ -99,6 +112,7 @@ fn install(sh: &Shell) -> Result<()> {
 
     println!("✅ 服务安装完成");
     println!("   使用 'cattysend --help' 查看命令");
+    println!("   使用 'cattysend-tui' 启动交互界面");
     println!("   使用 'systemctl status cattysend' 查看服务状态");
     Ok(())
 }
