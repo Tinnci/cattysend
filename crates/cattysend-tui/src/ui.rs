@@ -63,8 +63,9 @@ fn draw_devices_tab(frame: &mut Frame, app: &App, area: Rect) {
         .iter()
         .enumerate()
         .map(|(i, dev)| {
-            let rssi_bar = rssi_to_bar(dev.rssi);
-            let content = format!("{} {} [{}]", dev.name, rssi_bar, dev.brand);
+            let rssi_bar = rssi_to_bar(dev.rssi.unwrap_or(-100)); // Default to weak signal
+            let brand = get_brand_name(dev.brand_id.unwrap_or(0));
+            let content = format!("{} {} [{}]", dev.name, rssi_bar, brand);
             let style = if i == app.selected_device {
                 Style::default().bg(Color::DarkGray).fg(Color::White)
             } else {
@@ -194,4 +195,29 @@ fn rssi_to_bar(rssi: i16) -> &'static str {
     } else {
         "░░░░"
     }
+}
+
+fn get_brand_name(id: u16) -> String {
+    match id {
+        1 => "Xiaomi",
+        2 => "Vivo",
+        3 => "Oppo",
+        4 => "Huawei",
+        5 => "Samsung",
+        6 => "Honor",
+        7 => "Lenovo",
+        8 => "Meizu",
+        9 => "ZTE",
+        10 => "Nubia",
+        11 => "OnePlus",
+        12 => "Hisense",
+        13 => "Asus",
+        14 => "Coolpad",
+        15 => "BlackShark",
+        16 => "Redmi",
+        17 => "Realme",
+        18 => "IQOO",
+        _ => "Unknown",
+    }
+    .to_string()
 }

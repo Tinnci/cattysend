@@ -6,7 +6,7 @@
 //! - 处理发送端的 P2P 信息写入
 
 use crate::ble::{DeviceInfo, MAIN_SERVICE_UUID, P2P_CHAR_UUID, SERVICE_UUID, STATUS_CHAR_UUID};
-use crate::crypto::BleSecurity;
+// use crate::crypto::BleSecurity; // Removed
 use crate::wifi::P2pInfo;
 use bluer::{
     adv::Advertisement,
@@ -68,9 +68,11 @@ pub struct GattServer {
 
 impl GattServer {
     /// 创建新的 GATT Server
-    pub fn new(mac_address: String, device_name: String) -> anyhow::Result<Self> {
-        let security = BleSecurity::new()?;
-        let public_key = security.get_public_key().to_string();
+    pub fn new(
+        mac_address: String,
+        device_name: String,
+        public_key: String,
+    ) -> anyhow::Result<Self> {
         let state = GattServerState::new(mac_address, public_key)?;
 
         let (p2p_tx, p2p_rx) = mpsc::channel(16);

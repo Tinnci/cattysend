@@ -13,7 +13,7 @@ pub mod websocket_handler;
 
 pub use protocol::{SendRequest, WsMessage};
 pub use receiver_client::{ReceiverCallback, ReceiverClient};
-pub use sender_server::{FileEntry, TransferServer, TransferTask};
+pub use sender_server::{FileEntry, TransferServer, TransferStatus, TransferTask};
 
 use serde::{Deserialize, Serialize};
 

@@ -56,6 +56,7 @@ pub mod ble;
 pub mod crypto;
 pub mod transfer;
 pub mod wifi;
+pub mod workflow;
 
 // BLE re-exports
 pub use ble::{
@@ -73,4 +74,10 @@ pub use wifi::{P2pConfig, P2pInfo, WiFiP2pReceiver, WiFiP2pSender};
 pub use transfer::{
     FileEntry, ReceiverCallback, ReceiverClient, SendRequest, TransferServer, TransferTask,
     WsMessage,
+};
+
+// Workflow re-exports
+pub use workflow::{
+    ReceiveEvent, ReceiveOptions, ReceiveProgressCallback, ReceiveRequest, Receiver, SendEvent,
+    SendOptions, SendProgressCallback, Sender, SimpleReceiveCallback, SimpleSendCallback,
 };

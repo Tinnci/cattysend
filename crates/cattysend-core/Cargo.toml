@@ -44,3 +44,6 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
 regex = "1"
+hostname = { workspace = true }
+dirs = { workspace = true }
+mime_guess = "2"

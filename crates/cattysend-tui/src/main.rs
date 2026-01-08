@@ -16,10 +16,12 @@ use crossterm::{
 };
 use ratatui::prelude::*;
 use std::io;
+use std::time::Duration;
 
 use app::App;
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -29,7 +31,7 @@ fn main() -> Result<()> {
 
     // Run app
     let app = App::new();
-    let res = run_app(&mut terminal, app);
+    let res = run_app(&mut terminal, app).await;
 
     // Restore terminal
     disable_raw_mode()?;
@@ -47,26 +49,29 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> Result<()> {
+async fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> Result<()> {
     loop {
         terminal.draw(|f| ui::draw(f, &app))?;
 
-        if let Event::Key(key) = event::read()? {
-            if key.kind == KeyEventKind::Press {
-                match key.code {
-                    KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
-                    KeyCode::Char('s') => app.start_scan(),
-                    KeyCode::Char('r') => app.toggle_receive_mode(),
-                    KeyCode::Up | KeyCode::Char('k') => app.previous_device(),
-                    KeyCode::Down | KeyCode::Char('j') => app.next_device(),
-                    KeyCode::Enter => app.select_device(),
-                    KeyCode::Tab => app.next_tab(),
-                    _ => {}
+        // 使用 poll 避免无限阻塞，保证 scan 结果能及时更新 UI
+        if event::poll(Duration::from_millis(100))? {
+            if let Event::Key(key) = event::read()? {
+                if key.kind == KeyEventKind::Press {
+                    match key.code {
+                        KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
+                        KeyCode::Char('s') => app.start_scan(),
+                        KeyCode::Char('r') => app.toggle_receive_mode(),
+                        KeyCode::Up | KeyCode::Char('k') => app.previous_device(),
+                        KeyCode::Down | KeyCode::Char('j') => app.next_device(),
+                        KeyCode::Enter => app.select_device(),
+                        KeyCode::Tab => app.next_tab(),
+                        _ => {}
+                    }
                 }
             }
         }
 
-        // Update app state (simulated for now)
+        // Update app state (handle async events)
         app.tick();
     }
 }
