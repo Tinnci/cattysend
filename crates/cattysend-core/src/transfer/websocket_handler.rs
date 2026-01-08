@@ -1,8 +1,11 @@
-use crate::transfer::WsMessage;
+//! WebSocket 处理器（旧版本，保留兼容性）
+//!
+//! 注意：新代码应使用 transfer::protocol::WsMessage
+
+use crate::transfer::protocol::WsMessage;
 use futures_util::{SinkExt, StreamExt};
 use tokio::net::TcpListener;
 use tokio_tungstenite::{accept_async, connect_async, tungstenite::Message};
-use uuid::Uuid;
 
 pub struct WsServer {
     listener: TcpListener,
@@ -23,18 +26,17 @@ impl WsServer {
             let msg = msg?;
             if msg.is_text() {
                 let text = msg.to_text()?;
-                let ws_msg: WsMessage = serde_json::from_str(text)?;
-                println!("Received WS message: {:?}", ws_msg.msg_type);
+                if let Some(ws_msg) = WsMessage::parse(text) {
+                    println!("Received WS message: {:?}", ws_msg.name);
 
-                if ws_msg.msg_type == "versionNegotiation" {
-                    let resp = WsMessage {
-                        msg_type: "versionNegotiation".to_string(),
-                        msg_id: Uuid::new_v4().to_string(),
-                        data: serde_json::json!({ "version": "1.0" }),
-                    };
-                    write
-                        .send(Message::Text(serde_json::to_string(&resp)?))
-                        .await?;
+                    if ws_msg.name == "versionNegotiation" {
+                        let resp = WsMessage::ack(
+                            ws_msg.id,
+                            "versionNegotiation",
+                            Some(serde_json::json!({ "version": 1 })),
+                        );
+                        write.send(Message::Text(resp.to_string().into())).await?;
+                    }
                 }
             }
         }
@@ -57,14 +59,8 @@ impl WsClient {
         let (ws_stream, _) = connect_async(&self.url).await?;
         let (mut write, mut read) = ws_stream.split();
 
-        let neg = WsMessage {
-            msg_type: "versionNegotiation".to_string(),
-            msg_id: Uuid::new_v4().to_string(),
-            data: serde_json::json!({ "version": "1.0" }),
-        };
-        write
-            .send(Message::Text(serde_json::to_string(&neg)?))
-            .await?;
+        let neg = WsMessage::version_negotiation(0);
+        write.send(Message::Text(neg.to_string().into())).await?;
 
         if let Some(msg) = read.next().await {
             let msg = msg?;

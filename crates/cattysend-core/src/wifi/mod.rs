@@ -1,5 +1,14 @@
+//! WiFi P2P 模块
+//!
+//! 提供 WiFi Direct 功能:
+//! - P2P 热点创建 (发送端)
+//! - P2P 连接 (接收端)
+
 pub mod p2p_receiver;
 pub mod p2p_sender;
+
+pub use p2p_receiver::WiFiP2pReceiver;
+pub use p2p_sender::{P2pConfig, WiFiP2pSender};
 
 /// P2pInfo - 必须与 CatShare 的 P2pInfo 字段完全一致
 /// CatShare: data class P2pInfo(
@@ -57,5 +66,10 @@ impl P2pInfo {
             key: Some(sender_public_key),
             cat_share: Some(1),
         }
+    }
+
+    /// 获取发送端的 HTTPS 地址
+    pub fn get_server_url(&self, host_ip: &str) -> String {
+        format!("https://{}:{}", host_ip, self.port)
     }
 }
