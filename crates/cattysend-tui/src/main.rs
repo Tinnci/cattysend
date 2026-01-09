@@ -125,6 +125,12 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> Result
                         KeyCode::Char('1') => app.tab = app::Tab::Devices,
                         KeyCode::Char('2') => app.tab = app::Tab::Transfer,
                         KeyCode::Char('3') => app.tab = app::Tab::Log,
+                        KeyCode::Char('d') => {
+                            app.toggle_log_level();
+                        }
+                        KeyCode::Char('c') => {
+                            app.clear_logs();
+                        }
                         _ => {}
                     }
                 }

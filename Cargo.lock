@@ -360,6 +360,7 @@ version = "0.1.0"
 dependencies = [
  "aes",
  "anyhow",
+ "async-trait",
  "axum",
  "base64",
  "bluer",
@@ -410,6 +411,7 @@ name = "cattysend-tui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "cattysend-core",
  "crossterm",
  "futures-util",

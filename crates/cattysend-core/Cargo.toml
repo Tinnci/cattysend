@@ -41,6 +41,7 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 # Utilities
 anyhow = { workspace = true }
 thiserror = { workspace = true }
+async-trait = "0.1"
 log = "0.4"
 uuid = { workspace = true }
 regex = "1"

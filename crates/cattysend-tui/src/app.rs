@@ -1,8 +1,10 @@
 //! Application state
 
 use cattysend_core::{
-    BleScanner, DiscoveredDevice, ReceiveEvent, ReceiveOptions, Receiver, SimpleReceiveCallback,
+    BleScanner, DiscoveredDevice, ReceiveEvent, ReceiveOptions, Receiver, ScanCallback,
+    SimpleReceiveCallback,
 };
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
@@ -43,6 +45,56 @@ pub enum AppEvent {
     },
 }
 
+/// 日志级别过滤
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum LogLevel {
+    Error = 0,
+    Warn = 1,
+    Info = 2,
+    Debug = 3,
+    Trace = 4,
+}
+
+impl LogLevel {
+    pub fn from_str(s: &str) -> Self {
+        match s.to_uppercase().as_str() {
+            "ERROR" => LogLevel::Error,
+            "WARN" => LogLevel::Warn,
+            "INFO" => LogLevel::Info,
+            "DEBUG" => LogLevel::Debug,
+            "TRACE" => LogLevel::Trace,
+            _ => LogLevel::Info,
+        }
+    }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            LogLevel::Error => "ERROR",
+            LogLevel::Warn => "WARN",
+            LogLevel::Info => "INFO",
+            LogLevel::Debug => "DEBUG",
+            LogLevel::Trace => "TRACE",
+        }
+    }
+
+    pub fn icon(&self) -> &'static str {
+        match self {
+            LogLevel::Error => "❌",
+            LogLevel::Warn => "⚠️",
+            LogLevel::Info => "ℹ️",
+            LogLevel::Debug => "🔍",
+            LogLevel::Trace => "📝",
+        }
+    }
+}
+
+/// 带级别的日志条目
+#[derive(Debug, Clone)]
+pub struct LogEntry {
+    pub level: LogLevel,
+    pub message: String,
+}
+
 pub struct App {
     pub mode: AppMode,
     pub tab: Tab,
@@ -50,12 +102,17 @@ pub struct App {
     pub selected_device: usize,
     pub progress: f64,
     pub transfer_speed: f64,
-    pub logs: Vec<String>,
+
+    /// 原始日志列表（所有级别）
+    raw_logs: Vec<LogEntry>,
+    /// 当前显示的日志级别过滤器
+    pub log_filter: LogLevel,
+
     pub scan_start: Option<Instant>,
 
     // 异步任务通信
     pub event_rx: mpsc::Receiver<AppEvent>,
-    pub event_tx: mpsc::Sender<AppEvent>, // 用于克隆给 worker
+    pub event_tx: mpsc::Sender<AppEvent>,
 
     // 任务句柄
     pub active_task: Option<tokio::task::JoinHandle<()>>,
@@ -65,22 +122,68 @@ impl App {
     pub fn new() -> Self {
         let (event_tx, event_rx) = mpsc::channel(100);
 
-        Self {
+        let mut app = Self {
             mode: AppMode::Idle,
             tab: Tab::Devices,
             devices: vec![],
             selected_device: 0,
             progress: 0.0,
             transfer_speed: 0.0,
-            logs: vec![
-                "Cattysend TUI 启动".to_string(),
-                "按 's' 扫描设备, 'r' 接收模式, 'q' 退出".to_string(),
-            ],
+            raw_logs: vec![],
+            log_filter: LogLevel::Info,
             scan_start: None,
             event_rx,
             event_tx,
             active_task: None,
+        };
+
+        // 添加初始消息
+        app.add_log(LogLevel::Info, "Cattysend TUI 启动".to_string());
+        app.add_log(
+            LogLevel::Info,
+            "[s]扫描 [r]接收 [d]日志级别 [c]清空日志 [q]退出".to_string(),
+        );
+
+        app
+    }
+
+    /// 添加日志条目
+    pub fn add_log(&mut self, level: LogLevel, message: String) {
+        self.raw_logs.push(LogEntry { level, message });
+        // 保持最多 500 条日志
+        if self.raw_logs.len() > 500 {
+            self.raw_logs.remove(0);
         }
+    }
+
+    /// 获取过滤后的日志（用于显示）
+    pub fn filtered_logs(&self) -> Vec<String> {
+        self.raw_logs
+            .iter()
+            .filter(|e| e.level <= self.log_filter)
+            .map(|e| format!("{} {}", e.level.icon(), e.message))
+            .collect()
+    }
+
+    /// 切换日志级别（循环: Info -> Debug -> Trace -> Info）
+    pub fn toggle_log_level(&mut self) {
+        self.log_filter = match self.log_filter {
+            LogLevel::Error => LogLevel::Warn,
+            LogLevel::Warn => LogLevel::Info,
+            LogLevel::Info => LogLevel::Debug,
+            LogLevel::Debug => LogLevel::Trace,
+            LogLevel::Trace => LogLevel::Info,
+        };
+        self.add_log(
+            LogLevel::Info,
+            format!("日志级别切换为: {}", self.log_filter.name()),
+        );
+    }
+
+    /// 清空日志
+    pub fn clear_logs(&mut self) {
+        self.raw_logs.clear();
+        self.add_log(LogLevel::Info, "日志已清空".to_string());
     }
 
     pub fn start_scan(&mut self) {
@@ -92,18 +195,29 @@ impl App {
         self.scan_start = Some(Instant::now());
         self.devices.clear();
         self.selected_device = 0;
-        self.logs.push("开始扫描附近设备...".to_string());
+        self.add_log(LogLevel::Info, "开始扫描附近设备...".to_string());
 
         let tx = self.event_tx.clone();
+
+        // 扫面回调实现
+        struct TuiScanCallback {
+            tx: mpsc::Sender<AppEvent>,
+        }
+
+        #[async_trait::async_trait]
+        impl ScanCallback for TuiScanCallback {
+            async fn on_device_found(&self, device: DiscoveredDevice) {
+                let _ = self.tx.send(AppEvent::DeviceFound(device)).await;
+            }
+        }
+
+        let callback: Arc<dyn ScanCallback> = Arc::new(TuiScanCallback { tx: tx.clone() });
 
         // 启动扫描任务
         tokio::spawn(async move {
             match BleScanner::new().await {
-                Ok(scanner) => match scanner.scan(Duration::from_secs(10)).await {
-                    Ok(devices) => {
-                        for device in devices {
-                            let _ = tx.send(AppEvent::DeviceFound(device)).await;
-                        }
+                Ok(scanner) => match scanner.scan(Duration::from_secs(10), Some(callback)).await {
+                    Ok(_) => {
                         let _ = tx.send(AppEvent::ScanFinished).await;
                     }
                     Err(e) => {
@@ -129,12 +243,14 @@ impl App {
             AppEvent::ScanFinished => {
                 if self.mode == AppMode::Scanning {
                     self.mode = AppMode::Idle;
-                    self.logs
-                        .push(format!("扫描完成，发现 {} 个设备", self.devices.len()));
+                    self.add_log(
+                        LogLevel::Info,
+                        format!("扫描完成，发现 {} 个设备", self.devices.len()),
+                    );
                 }
             }
             AppEvent::StatusUpdate(msg) => {
-                self.logs.push(msg);
+                self.add_log(LogLevel::Info, msg);
             }
             AppEvent::ProgressUpdate { sent, total } => {
                 self.progress = sent as f64 / total as f64;
@@ -143,27 +259,15 @@ impl App {
             AppEvent::TransferComplete => {
                 self.mode = AppMode::Idle;
                 self.progress = 1.0;
-                self.logs.push("传输任务已完成".to_string());
+                self.add_log(LogLevel::Info, "传输任务已完成".to_string());
             }
             AppEvent::Error(msg) => {
                 self.mode = AppMode::Idle;
-                self.logs.push(format!("❌ {}", msg));
+                self.add_log(LogLevel::Error, msg);
             }
             AppEvent::LogMessage { level, message } => {
-                // 格式化日志消息并添加到日志列表
-                let icon = match level.as_str() {
-                    "ERROR" => "❌",
-                    "WARN" => "⚠️",
-                    "INFO" => "ℹ️",
-                    "DEBUG" => "🔍",
-                    "TRACE" => "📝",
-                    _ => "•",
-                };
-                self.logs.push(format!("{} {}", icon, message));
-                // 保持日志列表不超过 100 条
-                if self.logs.len() > 100 {
-                    self.logs.remove(0);
-                }
+                let log_level = LogLevel::from_str(&level);
+                self.add_log(log_level, message);
             }
         }
     }
@@ -174,12 +278,12 @@ impl App {
                 handle.abort();
             }
             self.mode = AppMode::Idle;
-            self.logs.push("停止接收模式".to_string());
+            self.add_log(LogLevel::Info, "停止接收模式".to_string());
             return;
         }
 
         self.mode = AppMode::Receiving;
-        self.logs.push("进入接收模式，正在广播...".to_string());
+        self.add_log(LogLevel::Info, "进入接收模式，正在广播...".to_string());
 
         let tx = self.event_tx.clone();
         let options = ReceiveOptions::default();
@@ -250,10 +354,12 @@ impl App {
 
     pub fn select_device(&mut self) {
         if let Some(device) = self.devices.get(self.selected_device) {
-            self.logs
-                .push(format!("选中设备: {} ({})", device.name, device.address));
+            self.add_log(
+                LogLevel::Info,
+                format!("选中设备: {} ({})", device.name, device.address),
+            );
             // TODO: 这里应弹出文件选择，目前先占位
-            self.logs.push("发送功能尚在完善中".to_string());
+            self.add_log(LogLevel::Warn, "发送功能尚在完善中".to_string());
         }
     }
 

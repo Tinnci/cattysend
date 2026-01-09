@@ -61,7 +61,7 @@ pub mod workflow;
 // BLE re-exports
 pub use ble::{
     BleClient, BleScanner, DeviceInfo, DiscoveredDevice, GattServer, GattServerHandle,
-    MAIN_SERVICE_UUID, P2P_CHAR_UUID, SERVICE_UUID, STATUS_CHAR_UUID,
+    MAIN_SERVICE_UUID, P2P_CHAR_UUID, SERVICE_UUID, STATUS_CHAR_UUID, ScanCallback,
 };
 
 // Crypto re-exports

@@ -155,15 +155,19 @@ fn draw_transfer_tab(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_log_tab(frame: &mut Frame, app: &App, area: Rect) {
-    let items: Vec<ListItem> = app
-        .logs
+    let logs = app.filtered_logs();
+    let items: Vec<ListItem> = logs
         .iter()
         .rev()
-        .take(20)
+        .take(50)
         .map(|log| ListItem::new(log.as_str()))
         .collect();
 
-    let list = List::new(items).block(Block::default().borders(Borders::ALL).title(" 📋 日志 "));
+    let title = format!(
+        " 📋 日志 [{}] - [d]切换级别 [c]清空 ",
+        app.log_filter.name()
+    );
+    let list = List::new(items).block(Block::default().borders(Borders::ALL).title(title));
 
     frame.render_widget(list, area);
 }

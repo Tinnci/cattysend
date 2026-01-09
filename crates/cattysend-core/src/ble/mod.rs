@@ -27,8 +27,9 @@ use uuid::Uuid;
 
 /// 广播 Service UUID (用于设备发现)
 ///
-/// CatShare: `00003331-0000-1000-8000-008123456789`
-pub const SERVICE_UUID: Uuid = Uuid::from_u128(0x00003331_0000_1000_8000_008123456789);
+/// CatShare/MTA 使用 16-bit UUID: 0x3331
+/// 完整 UUID: 00003331-0000-1000-8000-00805f9b34fb
+pub const SERVICE_UUID: Uuid = Uuid::from_u128(0x00003331_0000_1000_8000_00805f9b34fb);
 
 /// GATT Main Service UUID
 ///
@@ -88,7 +89,7 @@ impl DeviceInfo {
 
 // Re-exports
 pub use client::BleClient;
-pub use scanner::{BleScanner, DiscoveredDevice};
+pub use scanner::{BleScanner, DiscoveredDevice, ScanCallback};
 pub use server::{GattServer, GattServerHandle, P2pReceiveEvent};
 
 #[cfg(test)]
@@ -101,7 +102,7 @@ mod tests {
         // 广播服务 UUID
         assert_eq!(
             SERVICE_UUID.to_string(),
-            "00003331-0000-1000-8000-008123456789"
+            "00003331-0000-1000-8000-00805f9b34fb"
         );
 
         // GATT 主服务 UUID
