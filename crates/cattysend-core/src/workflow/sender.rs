@@ -7,7 +7,7 @@
 //! 4. 等待接收端连接和下载文件
 
 use crate::ble::{BleClient, DiscoveredDevice};
-use crate::transfer::{FileEntry, TransferServer, TransferStatus, TransferTask};
+use crate::transfer::{FileEntry, TransferServer, TransferTask};
 use crate::wifi::{P2pConfig, WiFiP2pSender};
 use std::path::PathBuf;
 use tokio::sync::mpsc;
@@ -149,13 +149,6 @@ impl Sender {
 
         Ok(())
     }
-
-    /// 获取本地 IP 地址
-    fn get_local_ip(&self) -> String {
-        self.wifi_sender
-            .get_hotspot_ip()
-            .unwrap_or_else(|_| "10.42.0.1".to_string())
-    }
 }
 
 /// 简化的发送回调实现
@@ -180,18 +173,18 @@ impl SimpleSendCallback {
 
 impl SendProgressCallback for SimpleSendCallback {
     fn on_status(&self, status: &str) {
-        let _ = self.tx.blocking_send(SendEvent::Status(status.to_string()));
+        let _ = self.tx.try_send(SendEvent::Status(status.to_string()));
     }
 
     fn on_progress(&self, sent: u64, total: u64) {
-        let _ = self.tx.blocking_send(SendEvent::Progress { sent, total });
+        let _ = self.tx.try_send(SendEvent::Progress { sent, total });
     }
 
     fn on_complete(&self) {
-        let _ = self.tx.blocking_send(SendEvent::Complete);
+        let _ = self.tx.try_send(SendEvent::Complete);
     }
 
     fn on_error(&self, error: &str) {
-        let _ = self.tx.blocking_send(SendEvent::Error(error.to_string()));
+        let _ = self.tx.try_send(SendEvent::Error(error.to_string()));
     }
 }

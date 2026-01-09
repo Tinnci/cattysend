@@ -1,8 +1,17 @@
 //! HTTP/HTTPS 传输服务器
 //!
-//! 与 CatShare 兼容的文件传输服务:
+//! 与 CatShare 兼容的文件传输服务。
+//!
+//! # 功能
+//!
 //! - HTTPS WebSocket 用于协商和状态同步
 //! - HTTPS GET /download 用于 ZIP 文件下载
+//!
+//! # 协议
+//!
+//! 使用自定义文本协议 `type:id:name?payload`
+
+use log::{debug, error, info, warn};
 
 use crate::transfer::protocol::WsMessage;
 use axum::{
@@ -96,11 +105,11 @@ impl TransferServer {
         let port = listener.local_addr()?.port();
         self.port = port;
 
-        tracing::info!("Transfer server listening on port {}", port);
+        info!("Transfer server listening on port {}", port);
 
         tokio::spawn(async move {
             if let Err(e) = axum::serve(listener, app).await {
-                tracing::error!("Server error: {}", e);
+                error!("Server error: {}", e);
             }
         });
 
@@ -124,7 +133,7 @@ impl TransferServer {
         // 启动 HTTP 服务器
         tokio::spawn(async move {
             if let Err(e) = axum::serve(http_listener, app).await {
-                tracing::error!("HTTP Server error: {}", e);
+                error!("HTTP Server error: {}", e);
             }
         });
 
@@ -138,16 +147,15 @@ impl TransferServer {
                 let state = state_for_ws.clone();
                 tokio::spawn(async move {
                     if let Err(e) = handle_websocket_connection(stream, state).await {
-                        tracing::error!("WebSocket error: {}", e);
+                        error!("WebSocket error: {}", e);
                     }
                 });
             }
         });
 
-        tracing::info!(
-            "Transfer server: HTTP on port {}, WebSocket on port {}",
-            port,
-            ws_port
+        info!(
+            "Transfer server started: HTTP={}, WebSocket={}",
+            port, ws_port
         );
 
         Ok(port)
@@ -176,7 +184,7 @@ async fn handle_websocket_connection(
             Ok(Message::Text(text)) => text.to_string(),
             Ok(Message::Close(_)) => break,
             Err(e) => {
-                tracing::error!("WebSocket read error: {}", e);
+                error!("WebSocket read error: {}", e);
                 break;
             }
             _ => continue,
@@ -185,12 +193,15 @@ async fn handle_websocket_connection(
         let ws_msg = match WsMessage::parse(&msg) {
             Some(m) => m,
             None => {
-                tracing::warn!("Invalid message: {}", msg);
+                warn!("Invalid WebSocket message: {}", msg);
                 continue;
             }
         };
 
-        tracing::debug!("Received: {:?}", ws_msg);
+        debug!(
+            "WS received: type={}, name={}",
+            ws_msg.msg_type, ws_msg.name
+        );
 
         match ws_msg.msg_type.as_str() {
             "ack" => {
@@ -238,11 +249,11 @@ async fn handle_websocket_connection(
                         let status_type = payload.get("type").and_then(|v| v.as_i64()).unwrap_or(0);
                         if status_type == 1 {
                             // 传输完成
-                            tracing::info!("Transfer completed successfully");
+                            info!("Transfer completed successfully");
                             break;
                         } else if status_type == 3 {
                             // 用户拒绝
-                            tracing::info!("Transfer rejected by user");
+                            info!("Transfer rejected by receiver");
                             break;
                         }
                     }
@@ -268,7 +279,7 @@ async fn download_handler(
         s.task.clone()
     };
 
-    tracing::info!("Download request for task: {}", task.task_id);
+    info!("Download request for task_id={}", task.task_id);
 
     // 创建 ZIP 文件
     match create_zip_response(&task.files).await {
@@ -280,7 +291,7 @@ async fn download_handler(
             (headers, data).into_response()
         }
         Err(e) => {
-            tracing::error!("Failed to create ZIP: {}", e);
+            error!("Failed to create ZIP: {}", e);
             (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create ZIP").into_response()
         }
     }

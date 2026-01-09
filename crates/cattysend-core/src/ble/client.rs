@@ -1,10 +1,21 @@
 //! BLE Client - 用于发送端连接接收端
 //!
-//! 流程:
+//! 提供与 CatShare GATT Server 通信的客户端实现。
+//!
+//! # 连接流程
+//!
 //! 1. 连接到目标设备的 GATT Server
 //! 2. 读取 CHAR_STATUS 获取 DeviceInfo (包含对方公钥)
-//! 3. 派生会话密钥
+//! 3. 派生会话密钥 (ECDH)
 //! 4. 加密 P2pInfo 并写入 CHAR_P2P
+//!
+//! # 安全性
+//!
+//! - 使用 ECDH P-256 密钥协商
+//! - P2pInfo 中的敏感字段 (SSID, PSK, MAC) 使用 AES-256-CTR 加密
+//! - 每次连接使用新的临时密钥对
+
+use log::{debug, info, trace};
 
 use crate::ble::{DeviceInfo, MAIN_SERVICE_UUID, P2P_CHAR_UUID, STATUS_CHAR_UUID};
 use crate::crypto::BleSecurity;
@@ -69,7 +80,7 @@ impl BleClient {
         let peripheral = self.find_device(device_address).await?;
 
         // 连接
-        tracing::info!("Connecting to {}", device_address);
+        info!("Connecting to BLE device: {}", device_address);
         peripheral.connect().await?;
 
         // 等待连接稳定
@@ -79,7 +90,7 @@ impl BleClient {
         // Note: btleplug 不直接支持 MTU 请求，跳过
 
         // 发现服务
-        tracing::info!("Discovering services...");
+        debug!("Discovering GATT services...");
         peripheral.discover_services().await?;
 
         // 查找并读取 STATUS 特征
@@ -88,7 +99,11 @@ impl BleClient {
         let device_info: DeviceInfo = serde_json::from_slice(&status_data)
             .map_err(|e| BleClientError::ProtocolError(format!("Invalid DeviceInfo: {}", e)))?;
 
-        tracing::info!("Remote device info: {:?}", device_info);
+        debug!(
+            "Remote DeviceInfo: state={}, mac={}",
+            device_info.state, device_info.mac
+        );
+        trace!("Full DeviceInfo: {:?}", device_info);
 
         // 如果对方提供了公钥，派生会话密钥并加密 P2P 信息
         let p2p_data = if let Some(peer_key) = &device_info.key {
@@ -126,7 +141,10 @@ impl BleClient {
 
         // 写入 P2P 特征
         let p2p_char = self.find_characteristic(&peripheral, P2P_CHAR_UUID)?;
-        tracing::info!("Writing P2P info ({} bytes)", p2p_data.len());
+        info!(
+            "Writing encrypted P2P info ({} bytes) to receiver",
+            p2p_data.len()
+        );
         peripheral
             .write(&p2p_char, &p2p_data, WriteType::WithResponse)
             .await?;

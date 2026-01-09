@@ -65,7 +65,11 @@ fn draw_devices_tab(frame: &mut Frame, app: &App, area: Rect) {
         .map(|(i, dev)| {
             let rssi_bar = rssi_to_bar(dev.rssi.unwrap_or(-100)); // Default to weak signal
             let brand = get_brand_name(dev.brand_id.unwrap_or(0));
-            let content = format!("{} {} [{}]", dev.name, rssi_bar, brand);
+            let wifi_5g = if dev.supports_5ghz { "⚡5G" } else { "" };
+            let content = format!(
+                "{} ({}) {} {} [{}]",
+                dev.name, dev.sender_id, rssi_bar, wifi_5g, brand
+            );
             let style = if i == app.selected_device {
                 Style::default().bg(Color::DarkGray).fg(Color::White)
             } else {

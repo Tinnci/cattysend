@@ -14,12 +14,18 @@ use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // 初始化日志
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env().add_directive("cattysend=debug".parse()?))
-        .init();
+    // 桥接 log crate（cattysend-core 使用）到 tracing
+    let _ = tracing_log::LogTracer::init();
 
-    tracing::info!("Cattysend Daemon 启动中...");
+    // 初始化日志
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("info,cattysend_core=debug")),
+        )
+        .try_init();
+
+    tracing::info!("Cattysend Daemon starting...");
 
     // 启动 IPC 服务器
     let ipc_handle = tokio::spawn(ipc::run_ipc_server());
@@ -30,10 +36,10 @@ async fn main() -> Result<()> {
     // 等待任一任务完成
     tokio::select! {
         res = ipc_handle => {
-            tracing::error!("IPC 服务器退出: {:?}", res);
+            tracing::error!("IPC server exited: {:?}", res);
         }
         res = service_handle => {
-            tracing::error!("核心服务退出: {:?}", res);
+            tracing::error!("Core service exited: {:?}", res);
         }
     }
 

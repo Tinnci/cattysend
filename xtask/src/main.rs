@@ -15,6 +15,15 @@ enum Commands {
     Build,
     /// 运行守护进程 (开发模式)
     Dev,
+    /// 运行 TUI (开发模式)
+    Tui {
+        /// 日志级别 (trace, debug, info, warn, error)
+        #[arg(short, long, default_value = "info")]
+        log_level: String,
+        /// 日志输出文件 (默认 /tmp/cattysend.log)
+        #[arg(short = 'o', long)]
+        log_file: Option<String>,
+    },
     /// 安装 systemd 服务
     Install,
     /// 卸载 systemd 服务
@@ -25,6 +34,8 @@ enum Commands {
     Dist,
     /// 运行测试
     Test,
+    /// 运行测试并生成覆盖率报告
+    Coverage,
     /// 清理构建产物
     Clean,
 }
@@ -44,11 +55,16 @@ fn main() -> Result<()> {
     match cli.command {
         Commands::Build => build(&sh)?,
         Commands::Dev => dev(&sh)?,
+        Commands::Tui {
+            log_level,
+            log_file,
+        } => tui(&sh, &log_level, log_file)?,
         Commands::Install => install(&sh)?,
         Commands::Uninstall => uninstall(&sh)?,
         Commands::SetupCaps => setup_caps(&sh)?,
         Commands::Dist => dist(&sh)?,
         Commands::Test => test(&sh)?,
+        Commands::Coverage => coverage(&sh)?,
         Commands::Clean => clean(&sh)?,
     }
 
@@ -69,6 +85,36 @@ fn build(sh: &Shell) -> Result<()> {
 fn dev(sh: &Shell) -> Result<()> {
     println!("🚀 启动开发模式守护进程...");
     cmd!(sh, "cargo run -p cattysend-daemon").run()?;
+    Ok(())
+}
+
+fn tui(sh: &Shell, log_level: &str, log_file: Option<String>) -> Result<()> {
+    let log_file = log_file.unwrap_or_else(|| "/tmp/cattysend.log".to_string());
+
+    println!("🖥️  启动 TUI 调试模式...");
+    println!("   日志级别: {}", log_level);
+    println!("   日志文件: {}", log_file);
+    println!("");
+    println!("💡 提示: 在另一个终端运行以下命令查看实时日志:");
+    println!("   tail -f {}", log_file);
+    println!("");
+
+    // 设置环境变量并运行
+    let rust_log = format!(
+        "{level},cattysend_core={level},bluer={level},btleplug=info",
+        level = log_level
+    );
+
+    // 使用 shell 执行以支持重定向
+    let command = format!(
+        "RUST_LOG='{}' cargo run -p cattysend-tui 2>> '{}'",
+        rust_log, log_file
+    );
+
+    cmd!(sh, "bash -c {command}").run()?;
+
+    println!("");
+    println!("📁 日志已保存到: {}", log_file);
     Ok(())
 }
 
@@ -181,6 +227,29 @@ fn dist(sh: &Shell) -> Result<()> {
 fn test(sh: &Shell) -> Result<()> {
     println!("🧪 运行测试...");
     cmd!(sh, "cargo test --workspace").run()?;
+    println!("✅ 测试完成");
+    Ok(())
+}
+
+fn coverage(sh: &Shell) -> Result<()> {
+    println!("📊 运行测试覆盖率分析...");
+
+    // 检查 cargo-tarpaulin 是否安装
+    if cmd!(sh, "cargo tarpaulin --version").run().is_err() {
+        println!("📦 安装 cargo-tarpaulin...");
+        cmd!(sh, "cargo install cargo-tarpaulin").run()?;
+    }
+
+    // 运行覆盖率分析
+    println!("🔍 分析中...");
+    cmd!(
+        sh,
+        "cargo tarpaulin --packages cattysend-core --out Html --output-dir target/coverage"
+    )
+    .run()?;
+
+    println!("✅ 覆盖率报告已生成");
+    println!("   HTML 报告: target/coverage/tarpaulin-report.html");
     Ok(())
 }
 

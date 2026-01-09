@@ -1,9 +1,19 @@
 //! HTTP/HTTPS 接收客户端
 //!
-//! 与 CatShare 兼容的文件接收客户端:
+//! 与 CatShare 兼容的文件接收客户端。
+//!
+//! # 功能
+//!
 //! - 连接发送端的 HTTPS WebSocket
 //! - 协商版本和处理发送请求
 //! - 下载 ZIP 文件并解压
+//!
+//! # 安全性
+//!
+//! - 使用 HTTPS 传输（跳过证书验证，因为发送端使用自签名证书）
+//! - WebSocket 协议用于状态同步
+
+use log::{debug, info, warn};
 
 use crate::transfer::protocol::{SendRequest, WsMessage};
 use futures_util::{SinkExt, StreamExt};
@@ -51,7 +61,7 @@ impl ReceiverClient {
 
         // 连接 WebSocket (不验证证书)
         let ws_url = format!("wss://{}:{}/websocket", self.host, self.port);
-        tracing::info!("Connecting to {}", ws_url);
+        info!("Connecting to WebSocket: {}", ws_url);
 
         // 使用不验证证书的 TLS 配置
         let connector = native_tls::TlsConnector::builder()
@@ -90,12 +100,15 @@ impl ReceiverClient {
             let ws_msg = match WsMessage::parse(&msg) {
                 Some(m) => m,
                 None => {
-                    tracing::warn!("Invalid message: {}", msg);
+                    warn!("Invalid WebSocket message: {}", msg);
                     continue;
                 }
             };
 
-            tracing::debug!("Received: {:?}", ws_msg);
+            debug!(
+                "WS received: type={}, name={}",
+                ws_msg.msg_type, ws_msg.name
+            );
 
             match ws_msg.name.as_str() {
                 "versionNegotiation" => {
@@ -152,7 +165,7 @@ impl ReceiverClient {
             self.host, self.port, task_id
         );
 
-        tracing::info!("Downloading from {}", download_url);
+        info!("Downloading file from: {}", download_url);
 
         // 使用不验证证书的 HTTP 客户端
         let client = reqwest::Client::builder()
@@ -188,22 +201,25 @@ impl ReceiverClient {
         let mut files = Vec::new();
 
         for i in 0..archive.len() {
-            let mut file = archive.by_index(i)?;
+            // 读取并写入 (先读到内存，释放 zip 文件句柄避免跨 await)
+            let (filename, buffer, is_dir) = {
+                let mut file = archive.by_index(i)?;
+                let is_dir = file.is_dir();
+                let name = file.name().to_string();
+                let filename = name.split('/').last().unwrap_or(&name).to_string();
+                let mut buffer = Vec::new();
+                if !is_dir {
+                    file.read_to_end(&mut buffer)?;
+                }
+                (filename, buffer, is_dir)
+            };
 
-            if file.is_dir() {
+            if is_dir {
                 continue;
             }
 
-            // 从 "index/filename" 格式提取文件名
-            let name = file.name().to_string();
-            let filename = name.split('/').last().unwrap_or(&name);
-
             let output_path = self.output_dir.join(filename);
             let mut output_file = File::create(&output_path).await?;
-
-            // 读取并写入
-            let mut buffer = Vec::new();
-            file.read_to_end(&mut buffer)?;
             output_file.write_all(&buffer).await?;
 
             received += buffer.len() as u64;

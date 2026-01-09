@@ -1,6 +1,18 @@
 //! WiFi P2P 发送端 (Group Owner / Hotspot)
 //!
-//! 使用 wpa_supplicant D-Bus 接口创建 P2P 热点
+//! 使用 wpa_supplicant 或 NetworkManager 创建 P2P 热点。
+//!
+//! # 实现方式
+//!
+//! 1. 优先使用 `wpa_cli p2p_group_add` 创建真正的 Wi-Fi Direct 组
+//! 2. 如果失败，退回到 `nmcli` 创建普通热点
+//!
+//! # 注意事项
+//!
+//! - 需要 `CAP_NET_ADMIN` 权限或 root
+//! - 5GHz 频段优先(更快速度)
+
+use log::warn;
 
 use crate::wifi::P2pInfo;
 use std::process::Command;
@@ -83,7 +95,7 @@ impl WiFiP2pSender {
         // 尝试使用 wpa_cli 创建 P2P 组
         // 如果失败，使用 nmcli 创建热点
         if let Err(e) = self.create_p2p_group_wpa(&ssid, &psk).await {
-            tracing::warn!("wpa_cli P2P group creation failed: {}, trying nmcli", e);
+            warn!("wpa_cli P2P group creation failed: {}, trying nmcli", e);
             self.create_hotspot_nmcli(&ssid, &psk).await?;
         }
 

@@ -246,31 +246,23 @@ impl SimpleReceiveCallback {
 
 impl ReceiveProgressCallback for SimpleReceiveCallback {
     fn on_status(&self, status: &str) {
-        let _ = self
-            .tx
-            .blocking_send(ReceiveEvent::Status(status.to_string()));
+        let _ = self.tx.try_send(ReceiveEvent::Status(status.to_string()));
     }
 
     fn on_request(&self, request: &ReceiveRequest) -> bool {
-        let _ = self
-            .tx
-            .blocking_send(ReceiveEvent::Request(request.clone()));
+        let _ = self.tx.try_send(ReceiveEvent::Request(request.clone()));
         self.auto_accept
     }
 
     fn on_progress(&self, received: u64, total: u64) {
-        let _ = self
-            .tx
-            .blocking_send(ReceiveEvent::Progress { received, total });
+        let _ = self.tx.try_send(ReceiveEvent::Progress { received, total });
     }
 
     fn on_complete(&self, files: Vec<PathBuf>) {
-        let _ = self.tx.blocking_send(ReceiveEvent::Complete(files));
+        let _ = self.tx.try_send(ReceiveEvent::Complete(files));
     }
 
     fn on_error(&self, error: &str) {
-        let _ = self
-            .tx
-            .blocking_send(ReceiveEvent::Error(error.to_string()));
+        let _ = self.tx.try_send(ReceiveEvent::Error(error.to_string()));
     }
 }

@@ -1,14 +1,18 @@
 //! Application state
 
-use cattysend_core::{BleScanner, DiscoveredDevice};
+use cattysend_core::{
+    BleScanner, DiscoveredDevice, ReceiveEvent, ReceiveOptions, Receiver, SimpleReceiveCallback,
+};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
+/// Application operation mode
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AppMode {
     Idle,
     Scanning,
     Receiving,
+    #[allow(dead_code)] // Planned for future file sending feature
     Sending,
     Transferring,
 }
@@ -25,7 +29,18 @@ pub enum Tab {
 pub enum AppEvent {
     DeviceFound(DiscoveredDevice),
     ScanFinished,
+    StatusUpdate(String),
+    ProgressUpdate {
+        sent: u64,
+        total: u64,
+    },
+    TransferComplete,
     Error(String),
+    /// 日志消息（显示在日志面板）
+    LogMessage {
+        level: String,
+        message: String,
+    },
 }
 
 pub struct App {
@@ -41,6 +56,9 @@ pub struct App {
     // 异步任务通信
     pub event_rx: mpsc::Receiver<AppEvent>,
     pub event_tx: mpsc::Sender<AppEvent>, // 用于克隆给 worker
+
+    // 任务句柄
+    pub active_task: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl App {
@@ -61,6 +79,7 @@ impl App {
             scan_start: None,
             event_rx,
             event_tx,
+            active_task: None,
         }
     }
 
@@ -80,7 +99,7 @@ impl App {
         // 启动扫描任务
         tokio::spawn(async move {
             match BleScanner::new().await {
-                Ok(scanner) => match scanner.scan(Duration::from_secs(5)).await {
+                Ok(scanner) => match scanner.scan(Duration::from_secs(10)).await {
                     Ok(devices) => {
                         for device in devices {
                             let _ = tx.send(AppEvent::DeviceFound(device)).await;
@@ -103,35 +122,115 @@ impl App {
     pub fn handle_event(&mut self, event: AppEvent) {
         match event {
             AppEvent::DeviceFound(device) => {
-                // 去重
                 if !self.devices.iter().any(|d| d.address == device.address) {
                     self.devices.push(device);
                 }
             }
             AppEvent::ScanFinished => {
+                if self.mode == AppMode::Scanning {
+                    self.mode = AppMode::Idle;
+                    self.logs
+                        .push(format!("扫描完成，发现 {} 个设备", self.devices.len()));
+                }
+            }
+            AppEvent::StatusUpdate(msg) => {
+                self.logs.push(msg);
+            }
+            AppEvent::ProgressUpdate { sent, total } => {
+                self.progress = sent as f64 / total as f64;
+                self.mode = AppMode::Transferring;
+            }
+            AppEvent::TransferComplete => {
                 self.mode = AppMode::Idle;
-                self.logs
-                    .push(format!("扫描完成，发现 {} 个设备", self.devices.len()));
+                self.progress = 1.0;
+                self.logs.push("传输任务已完成".to_string());
             }
             AppEvent::Error(msg) => {
                 self.mode = AppMode::Idle;
-                self.logs.push(format!("错误: {}", msg));
+                self.logs.push(format!("❌ {}", msg));
+            }
+            AppEvent::LogMessage { level, message } => {
+                // 格式化日志消息并添加到日志列表
+                let icon = match level.as_str() {
+                    "ERROR" => "❌",
+                    "WARN" => "⚠️",
+                    "INFO" => "ℹ️",
+                    "DEBUG" => "🔍",
+                    "TRACE" => "📝",
+                    _ => "•",
+                };
+                self.logs.push(format!("{} {}", icon, message));
+                // 保持日志列表不超过 100 条
+                if self.logs.len() > 100 {
+                    self.logs.remove(0);
+                }
             }
         }
     }
 
     pub fn toggle_receive_mode(&mut self) {
-        match self.mode {
-            AppMode::Receiving => {
-                self.mode = AppMode::Idle;
-                self.logs.push("停止接收模式".to_string());
+        if self.mode == AppMode::Receiving {
+            if let Some(handle) = self.active_task.take() {
+                handle.abort();
             }
-            _ => {
-                self.mode = AppMode::Receiving;
-                self.logs.push("进入接收模式，等待连接...".to_string());
-                // TODO: 启动接收任务
-            }
+            self.mode = AppMode::Idle;
+            self.logs.push("停止接收模式".to_string());
+            return;
         }
+
+        self.mode = AppMode::Receiving;
+        self.logs.push("进入接收模式，正在广播...".to_string());
+
+        let tx = self.event_tx.clone();
+        let options = ReceiveOptions::default();
+
+        let handle = tokio::spawn(async move {
+            match Receiver::new(options) {
+                Ok(mut receiver) => {
+                    let (callback, mut rx) = SimpleReceiveCallback::new(true); // auto_accept = true
+
+                    // 转发回调事件到 App
+                    let tx_clone = tx.clone();
+                    tokio::spawn(async move {
+                        while let Some(event) = rx.recv().await {
+                            match event {
+                                ReceiveEvent::Status(s) => {
+                                    let _ = tx_clone.send(AppEvent::StatusUpdate(s)).await;
+                                }
+                                ReceiveEvent::Progress { received, total } => {
+                                    let _ = tx_clone
+                                        .send(AppEvent::ProgressUpdate {
+                                            sent: received,
+                                            total,
+                                        })
+                                        .await;
+                                }
+                                ReceiveEvent::Complete(_) => {
+                                    let _ = tx_clone.send(AppEvent::TransferComplete).await;
+                                }
+                                ReceiveEvent::Error(e) => {
+                                    let _ = tx_clone.send(AppEvent::Error(e)).await;
+                                }
+                                _ => {}
+                            }
+                        }
+                    });
+
+                    if let Err(e) = receiver.start(&callback).await {
+                        let _ = tx
+                            .send(AppEvent::Error(format!("接收流程出错: {}", e)))
+                            .await;
+                    }
+                }
+                Err(e) => {
+                    let _ = tx
+                        .send(AppEvent::Error(format!("无法初始化接收器: {}", e)))
+                        .await;
+                }
+            }
+        });
+
+        self.active_task = Some(handle);
     }
 
     pub fn next_device(&mut self) {
@@ -152,9 +251,9 @@ impl App {
     pub fn select_device(&mut self) {
         if let Some(device) = self.devices.get(self.selected_device) {
             self.logs
-                .push(format!("连接到: {} ({})", device.name, device.address));
-            self.mode = AppMode::Sending;
-            // TODO: 启动发送任务
+                .push(format!("选中设备: {} ({})", device.name, device.address));
+            // TODO: 这里应弹出文件选择，目前先占位
+            self.logs.push("发送功能尚在完善中".to_string());
         }
     }
 
@@ -167,19 +266,8 @@ impl App {
     }
 
     pub fn tick(&mut self) {
-        // 处理异步事件
         while let Ok(event) = self.event_rx.try_recv() {
             self.handle_event(event);
-        }
-
-        // Transfer simulation removal (will replace with real progress)
-        if self.mode == AppMode::Transferring {
-            self.progress += 0.02;
-            if self.progress >= 1.0 {
-                self.progress = 1.0;
-                self.mode = AppMode::Idle;
-                self.logs.push("传输完成!".to_string());
-            }
         }
     }
 }

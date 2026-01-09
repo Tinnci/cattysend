@@ -1,3 +1,10 @@
+//! BLE 广播器
+//!
+//! 提供低级别的 BLE 广播和 GATT 服务功能。
+//! 通常应使用更高层的 `GattServer` 代替。
+
+use log::info;
+
 use crate::ble::{DeviceInfo, MAIN_SERVICE_UUID, P2P_CHAR_UUID, SERVICE_UUID, STATUS_CHAR_UUID};
 use bluer::{
     adv::Advertisement,
@@ -77,7 +84,7 @@ impl BleAdvertiser {
 
         let _adv_handle = adapter.advertise(adv).await?;
 
-        tracing::info!("BLE 广播已启动");
+        info!("BLE advertiser started");
 
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(3600)).await;

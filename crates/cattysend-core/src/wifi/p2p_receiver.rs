@@ -1,6 +1,18 @@
 //! WiFi P2P 接收端 (Client)
 //!
-//! 连接到发送端创建的 P2P 热点
+//! 连接到发送端创建的 P2P 热点。
+//!
+//! # 实现方式
+//!
+//! 1. 优先使用 `wpa_cli` 连接（更轻量）
+//! 2. 如果失败，退回到 `nmcli`（NetworkManager）
+//!
+//! # 注意事项
+//!
+//! - 连接后自动获取 DHCP 分配的 IP 地址
+//! - 断开时会清理相关网络配置
+
+use log::info;
 
 use crate::wifi::P2pInfo;
 use std::process::Command;
@@ -22,7 +34,10 @@ impl WiFiP2pReceiver {
     ///
     /// 返回分配的 IP 地址
     pub async fn connect(&self, info: &P2pInfo) -> anyhow::Result<String> {
-        tracing::info!("Connecting to {} with password {}", info.ssid, info.psk);
+        info!(
+            "Connecting to WiFi: ssid='{}', interface='{}'",
+            info.ssid, self.interface
+        );
 
         // 尝试使用 wpa_cli 连接
         if let Ok(ip) = self.connect_wpa(&info.ssid, &info.psk).await {
