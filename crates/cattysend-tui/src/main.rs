@@ -38,8 +38,19 @@ async fn main() -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
+    // 解析命令行参数（简单的文件路径）
+    let args: Vec<String> = std::env::args().collect();
+    let file_path = if args.len() > 1 {
+        Some(args[1].clone())
+    } else {
+        None
+    };
+
     // 创建 App（获取日志发送器）
-    let app = App::new();
+    let mut app = App::new();
+    if let Some(path) = file_path {
+        app.set_file_to_send(path);
+    }
 
     // 初始化日志系统，发送到 TUI 日志面板
     init_logging(app.event_tx.clone());
@@ -119,7 +130,15 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> Result
                         KeyCode::Up | KeyCode::Char('k') => app.previous_device(),
                         KeyCode::Down | KeyCode::Char('j') => app.next_device(),
                         KeyCode::Enter => {
-                            app.select_device();
+                            // Check if we have a file to send and a valid device selected
+                            if let Some(file_path) = app.file_to_send.clone() {
+                                if let Some(device) = app.devices.get(app.selected_device).cloned()
+                                {
+                                    app.run_sender(device.address.to_string(), file_path);
+                                }
+                            } else {
+                                app.select_device();
+                            }
                         }
                         KeyCode::Tab => app.next_tab(),
                         KeyCode::Char('1') => app.tab = app::Tab::Devices,

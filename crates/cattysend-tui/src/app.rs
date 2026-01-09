@@ -2,7 +2,7 @@
 
 use cattysend_core::{
     BleScanner, DiscoveredDevice, ReceiveEvent, ReceiveOptions, Receiver, ScanCallback,
-    SimpleReceiveCallback,
+    SendOptions, Sender, SimpleReceiveCallback, SimpleSendCallback,
 };
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -102,6 +102,7 @@ pub struct App {
     pub selected_device: usize,
     pub progress: f64,
     pub transfer_speed: f64,
+    pub file_to_send: Option<String>,
 
     /// 原始日志列表（所有级别）
     raw_logs: Vec<LogEntry>,
@@ -129,6 +130,7 @@ impl App {
             selected_device: 0,
             progress: 0.0,
             transfer_speed: 0.0,
+            file_to_send: None,
             raw_logs: vec![],
             log_filter: LogLevel::Info,
             scan_start: None,
@@ -145,6 +147,93 @@ impl App {
         );
 
         app
+    }
+
+    pub fn set_file_to_send(&mut self, path: String) {
+        self.file_to_send = Some(path);
+        self.add_log(
+            LogLevel::Info,
+            format!("待发送文件已设置: {}", self.file_to_send.as_ref().unwrap()),
+        );
+    }
+
+    pub fn run_sender(&mut self, device_addr: String, file_path: String) {
+        let tx = self.event_tx.clone();
+
+        self.add_log(
+            LogLevel::Info,
+            format!("正在连接设备 {} (发送 {})...", device_addr, file_path),
+        );
+        self.mode = AppMode::Sending;
+
+        // 取消现有任务（如果有）
+        if let Some(handle) = self.active_task.take() {
+            handle.abort();
+        }
+
+        // 查找选中的 DiscoveredDevice
+        let device = self
+            .devices
+            .iter()
+            .find(|d| d.address.to_string() == device_addr)
+            .cloned();
+
+        if let Some(device) = device {
+            let task = tokio::spawn(async move {
+                let options = SendOptions {
+                    wifi_interface: "wlan0".to_string(),
+                    use_5ghz: true,
+                    sender_name: "Cattysend-TUI".to_string(),
+                };
+
+                // 1. 创建回调和接收通道
+                let (callback, mut rx_internal) = SimpleSendCallback::new();
+
+                // 2. 启动一个子任务来转发回调事件到主 App 通道
+                let tx_clone = tx.clone();
+                tokio::spawn(async move {
+                    while let Some(event) = rx_internal.recv().await {
+                        let tx = tx_clone.clone();
+                        match event {
+                            cattysend_core::SendEvent::Status(s) => {
+                                let _ = tx.send(AppEvent::StatusUpdate(s)).await;
+                            }
+                            cattysend_core::SendEvent::Progress { sent, total, .. } => {
+                                let _ = tx.send(AppEvent::ProgressUpdate { sent, total }).await;
+                            }
+                            cattysend_core::SendEvent::Complete => {
+                                let _ = tx.send(AppEvent::TransferComplete).await;
+                            }
+                            cattysend_core::SendEvent::Error(e) => {
+                                let _ = tx.send(AppEvent::Error(e)).await;
+                            }
+                        }
+                    }
+                });
+
+                // 3. 执行发送
+                let sender = Sender::new(options);
+                match sender
+                    .send_to_device(
+                        &device,
+                        vec![std::path::PathBuf::from(file_path)],
+                        &callback,
+                    )
+                    .await
+                {
+                    Ok(_) => {} // 成功由 Complete 事件处理
+                    Err(e) => {
+                        let _ = tx
+                            .send(AppEvent::Error(format!("发送过程错误: {}", e)))
+                            .await;
+                    }
+                }
+            });
+            self.active_task = Some(task);
+        } else {
+            self.add_log(LogLevel::Error, "未找到目标设备信息".to_string());
+            self.mode = AppMode::Idle;
+        }
     }
 
     /// 添加日志条目

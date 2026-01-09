@@ -16,14 +16,12 @@
 //! - 0x03: vivo
 //! - 0xFF: 未知/Linux
 
-use log::{debug, info, trace};
+use log::{debug, info};
 
-use crate::ble::SERVICE_UUID;
 use bluer::AdapterEvent;
 use futures_util::StreamExt;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::time;
 
 #[derive(Debug, Clone)]
 pub struct DiscoveredDevice {
