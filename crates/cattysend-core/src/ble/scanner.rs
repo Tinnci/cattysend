@@ -149,21 +149,49 @@ impl BleScanner {
             .await?
             .unwrap_or_else(|| "<unknown>".to_string());
 
-        // 如果名称未知，尝试从厂商数据中提取（典型的小米/红米行为）
+        // 如果名称未知，尝试从厂商数据中提取
         if name == "<unknown>" {
+            let mut candidates = Vec::new();
             for (_, data) in &manufacturer_data {
-                // 寻找连续的 ASCII 打印字符作为名称
-                let potential_name: String = data
-                    .iter()
-                    .filter(|&&b| b >= 32 && b <= 126)
-                    .map(|&b| b as char)
-                    .collect::<String>()
-                    .trim()
-                    .to_string();
+                let mut current_seq = Vec::new();
+                for &b in data {
+                    if (32..=126).contains(&b) {
+                        current_seq.push(b);
+                    } else {
+                        if current_seq.len() >= 3 {
+                            if let Ok(s) = String::from_utf8(current_seq.clone()) {
+                                candidates.push(s.trim().to_string());
+                            }
+                        }
+                        current_seq.clear();
+                    }
+                }
+                if current_seq.len() >= 3 {
+                    if let Ok(s) = String::from_utf8(current_seq) {
+                        candidates.push(s.trim().to_string());
+                    }
+                }
+            }
 
-                if potential_name.len() >= 3 {
-                    name = potential_name;
-                    break;
+            if !candidates.is_empty() {
+                // 优先选择包含已知品牌的
+                let brands = [
+                    "REDMI", "XIAOMI", "ONEPLUS", "OPPO", "VIVO", "REALME", "MI", "HUAWEI", "HONOR",
+                ];
+                let mut branded: Vec<_> = candidates
+                    .iter()
+                    .filter(|s| {
+                        let s_up = s.to_uppercase();
+                        brands.iter().any(|&b| s_up.contains(b))
+                    })
+                    .collect();
+
+                if !branded.is_empty() {
+                    branded.sort_by_key(|s| s.len());
+                    name = branded.last().unwrap().to_string();
+                } else {
+                    candidates.sort_by_key(|s| s.len());
+                    name = candidates.last().unwrap().clone();
                 }
             }
         }
