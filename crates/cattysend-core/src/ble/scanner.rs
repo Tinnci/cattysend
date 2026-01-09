@@ -90,17 +90,26 @@ impl BleScanner {
             }
         }
 
-        // 也检查已经发现的设备
+        // 也检查已经发现的设备（可能是扫描开始前已存在的）
         let device_addrs = adapter.device_addresses().await?;
+        debug!("Checking {} cached devices", device_addrs.len());
         for addr in device_addrs {
             if !discovered_map.contains_key(&addr) {
                 let device = adapter.device(addr)?;
                 if let Ok(Some(dev)) = self.parse_device(&device).await {
+                    debug!(
+                        "Found CatShare device in cache: addr={}, name='{}'",
+                        addr, dev.name
+                    );
                     discovered_map.insert(addr, dev);
                 }
             }
         }
 
+        info!(
+            "Scan complete: found {} CatShare-compatible device(s)",
+            discovered_map.len()
+        );
         Ok(discovered_map.into_values().collect())
     }
 
@@ -108,6 +117,12 @@ impl BleScanner {
         &self,
         device: &bluer::Device,
     ) -> anyhow::Result<Option<DiscoveredDevice>> {
+        // 检查设备的 UUID 和 Service Data
+        let addr = device.address();
+        let mut name = device
+            .name()
+            .await?
+            .unwrap_or_else(|| "<unknown>".to_string());
         let uuids = device.uuids().await?.unwrap_or_default();
         let service_data = device.service_data().await?.unwrap_or_default();
 
@@ -115,11 +130,22 @@ impl BleScanner {
         let has_base_service = uuids.contains(&SERVICE_UUID);
         let identity_data = service_data.get(&scan_resp_uuid);
 
+        // 详细日志：检查每个设备
+        trace!(
+            "Checking device {}: name='{}', uuids={}, service_data_keys={}",
+            addr,
+            name,
+            uuids.len(),
+            service_data.len()
+        );
+
         if has_base_service || identity_data.is_some() {
-            let mut name = device
-                .name()
-                .await?
-                .unwrap_or_else(|| "Unknown".to_string());
+            debug!(
+                "Device {} matches CatShare: has_service_uuid={}, has_identity_data={}",
+                addr,
+                has_base_service,
+                identity_data.is_some()
+            );
             let rssi = device.rssi().await?;
             let mut brand_id = None;
             let mut sender_id = "0000".to_string();
@@ -159,6 +185,13 @@ impl BleScanner {
                 brand_id = mfdata.keys().next().map(|&k| k as u16);
             }
 
+            info!(
+                "Discovered CatShare device: name='{}', addr={}, rssi={:?}, 5GHz={}",
+                name,
+                device.address(),
+                rssi,
+                supports_5ghz
+            );
             return Ok(Some(DiscoveredDevice {
                 name,
                 address: device.address().to_string(),
