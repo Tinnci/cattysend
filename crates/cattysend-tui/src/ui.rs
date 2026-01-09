@@ -156,20 +156,21 @@ fn draw_transfer_tab(frame: &mut Frame, app: &App, area: Rect) {
 
 fn draw_log_tab(frame: &mut Frame, app: &App, area: Rect) {
     let logs = app.filtered_logs();
-    let items: Vec<ListItem> = logs
+    // 将日志合并为多行文本，最近的在下面（或者最近的在上面，取决于习惯，这里保持最近在最前）
+    let log_text: Vec<Line> = logs
         .iter()
         .rev()
-        .take(50)
-        .map(|log| ListItem::new(log.as_str()))
+        .take(100) // 增加可显示的日志数
+        .map(|log| Line::from(log.as_str()))
         .collect();
 
-    let title = format!(
-        " 📋 日志 [{}] - [d]切换级别 [c]清空 ",
-        app.log_filter.name()
-    );
-    let list = List::new(items).block(Block::default().borders(Borders::ALL).title(title));
+    let title = format!(" 📋 日志 [{}] - [d]级别 [c]清空 ", app.log_filter.name());
 
-    frame.render_widget(list, area);
+    let paragraph = Paragraph::new(log_text)
+        .block(Block::default().borders(Borders::ALL).title(title))
+        .wrap(Wrap { trim: true }); // 开启自动换行
+
+    frame.render_widget(paragraph, area);
 }
 
 fn draw_status_bar(frame: &mut Frame, app: &App, area: Rect) {

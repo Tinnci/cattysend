@@ -143,13 +143,33 @@ impl BleScanner {
     ) -> anyhow::Result<Option<DiscoveredDevice>> {
         // 检查设备的 UUID 和 Service Data
         let addr = device.address();
+        let manufacturer_data = device.manufacturer_data().await?.unwrap_or_default();
         let mut name = device
             .name()
             .await?
             .unwrap_or_else(|| "<unknown>".to_string());
+
+        // 如果名称未知，尝试从厂商数据中提取（典型的小米/红米行为）
+        if name == "<unknown>" {
+            for (_, data) in &manufacturer_data {
+                // 寻找连续的 ASCII 打印字符作为名称
+                let potential_name: String = data
+                    .iter()
+                    .filter(|&&b| b >= 32 && b <= 126)
+                    .map(|&b| b as char)
+                    .collect::<String>()
+                    .trim()
+                    .to_string();
+
+                if potential_name.len() >= 3 {
+                    name = potential_name;
+                    break;
+                }
+            }
+        }
+
         let uuids = device.uuids().await?.unwrap_or_default();
         let service_data = device.service_data().await?.unwrap_or_default();
-        let manufacturer_data = device.manufacturer_data().await?.unwrap_or_default();
 
         let scan_resp_uuid = uuid::Uuid::from_u128(0x0000ffff_0000_1000_8000_00805f9b34fb);
         // MTA/CatShare 相关的 16-bit UUID 范围 (0x3331 - 0x3334)
