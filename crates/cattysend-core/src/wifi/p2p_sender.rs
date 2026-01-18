@@ -201,12 +201,12 @@ impl WiFiP2pSender {
         for line in stdout.lines() {
             if line.contains(&self.config.interface) && line.contains("inet ") {
                 let parts: Vec<&str> = line.split_whitespace().collect();
-                if let Some(pos) = parts.iter().position(|&s| s == "inet") {
-                    if let Some(ip_cidr) = parts.get(pos + 1) {
-                        if let Some(ip) = ip_cidr.split('/').next() {
-                            return Ok(ip.to_string());
-                        }
-                    }
+                if let Some(pos) = parts.iter().position(|&s| s == "inet")
+                    && let Some(ip) = parts
+                        .get(pos + 1)
+                        .and_then(|ip_cidr| ip_cidr.split('/').next())
+                {
+                    return Ok(ip.to_string());
                 }
             }
         }

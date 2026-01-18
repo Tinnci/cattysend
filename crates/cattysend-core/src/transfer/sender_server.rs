@@ -186,9 +186,7 @@ async fn handle_websocket_connection(
 
     // 发送版本协商
     let ver_msg = WsMessage::version_negotiation(msg_id);
-    write
-        .send(Message::Text(ver_msg.to_string().into()))
-        .await?;
+    write.send(Message::Text(ver_msg.to_string())).await?;
 
     // 处理消息
     while let Some(msg) = read.next().await {
@@ -246,38 +244,36 @@ async fn handle_websocket_connection(
                             "totalSize": total_size
                         })),
                     );
-                    write
-                        .send(Message::Text(send_req.to_string().into()))
-                        .await?;
+                    write.send(Message::Text(send_req.to_string())).await?;
                 }
             }
             "action" => {
                 // 发送 ACK
                 let ack = WsMessage::ack(ws_msg.id, &ws_msg.name, None);
-                write.send(Message::Text(ack.to_string().into())).await?;
+                write.send(Message::Text(ack.to_string())).await?;
 
-                if ws_msg.name == "status" {
-                    if let Some(payload) = &ws_msg.payload {
-                        let status_type = payload.get("type").and_then(|v| v.as_i64()).unwrap_or(0);
-                        if status_type == 1 {
-                            // 传输完成
-                            info!("Transfer completed successfully");
-                            let _ = state.lock().await.status_tx.send(TransferStatus::Completed);
-                            break;
-                        } else if status_type == 3 {
-                            // 用户拒绝
-                            info!("Transfer rejected by receiver");
-                            let reason = payload
-                                .get("reason")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("rejected");
-                            let _ = state
-                                .lock()
-                                .await
-                                .status_tx
-                                .send(TransferStatus::Rejected(reason.to_string()));
-                            break;
-                        }
+                if ws_msg.name == "status"
+                    && let Some(payload) = &ws_msg.payload
+                {
+                    let status_type = payload.get("type").and_then(|v| v.as_i64()).unwrap_or(0);
+                    if status_type == 1 {
+                        // 传输完成
+                        info!("Transfer completed successfully");
+                        let _ = state.lock().await.status_tx.send(TransferStatus::Completed);
+                        break;
+                    } else if status_type == 3 {
+                        // 用户拒绝
+                        info!("Transfer rejected by receiver");
+                        let reason = payload
+                            .get("reason")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("rejected");
+                        let _ = state
+                            .lock()
+                            .await
+                            .status_tx
+                            .send(TransferStatus::Rejected(reason.to_string()));
+                        break;
                     }
                 }
             }

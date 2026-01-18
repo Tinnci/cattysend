@@ -151,11 +151,12 @@ impl BleSecurity {
         }
 
         // 然后尝试 SEC1 uncompressed 格式（65 字节，0x04 前缀）
-        if bytes.len() == 65 && bytes[0] == 0x04 {
-            if let Ok(pk) = PublicKey::from_sec1_bytes(bytes) {
-                trace!("Parsed public key as SEC1 uncompressed format");
-                return Ok(pk);
-            }
+        if bytes.len() == 65
+            && bytes[0] == 0x04
+            && let Ok(pk) = PublicKey::from_sec1_bytes(bytes)
+        {
+            trace!("Parsed public key as SEC1 uncompressed format");
+            return Ok(pk);
         }
 
         // 最后尝试作为原始 SPKI（某些实现可能不以 0x30 开头）

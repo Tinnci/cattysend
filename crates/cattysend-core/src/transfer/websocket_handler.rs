@@ -35,7 +35,7 @@ impl WsServer {
                             "versionNegotiation",
                             Some(serde_json::json!({ "version": 1 })),
                         );
-                        write.send(Message::Text(resp.to_string().into())).await?;
+                        write.send(Message::Text(resp.to_string())).await?;
                     }
                 }
             }
@@ -60,7 +60,7 @@ impl WsClient {
         let (mut write, mut read) = ws_stream.split();
 
         let neg = WsMessage::version_negotiation(0);
-        write.send(Message::Text(neg.to_string().into())).await?;
+        write.send(Message::Text(neg.to_string())).await?;
 
         if let Some(msg) = read.next().await {
             let msg = msg?;

@@ -94,10 +94,10 @@ fn tui(sh: &Shell, log_level: &str, log_file: Option<String>) -> Result<()> {
     println!("🖥️  启动 TUI 调试模式...");
     println!("   日志级别: {}", log_level);
     println!("   日志文件: {}", log_file);
-    println!("");
+    println!();
     println!("💡 提示: 在另一个终端运行以下命令查看实时日志:");
     println!("   tail -f {}", log_file);
-    println!("");
+    println!();
 
     // 设置环境变量并运行
     let rust_log = format!(
@@ -113,7 +113,7 @@ fn tui(sh: &Shell, log_level: &str, log_file: Option<String>) -> Result<()> {
 
     cmd!(sh, "bash -c {command}").run()?;
 
-    println!("");
+    println!();
     println!("📁 日志已保存到: {}", log_file);
     Ok(())
 }

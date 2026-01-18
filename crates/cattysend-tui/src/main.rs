@@ -114,45 +114,43 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> Result
         terminal.draw(|f| ui::draw(f, &app))?;
 
         // 使用 poll 避免无限阻塞
-        if event::poll(Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => {
-                            return Ok(());
+        if event::poll(Duration::from_millis(100))?
+            && let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+        {
+            match key.code {
+                KeyCode::Char('q') | KeyCode::Esc => {
+                    return Ok(());
+                }
+                KeyCode::Char('s') => {
+                    app.start_scan();
+                }
+                KeyCode::Char('r') => {
+                    app.toggle_receive_mode();
+                }
+                KeyCode::Up | KeyCode::Char('k') => app.previous_device(),
+                KeyCode::Down | KeyCode::Char('j') => app.next_device(),
+                KeyCode::Enter => {
+                    // Check if we have a file to send and a valid device selected
+                    if let Some(file_path) = app.file_to_send.clone() {
+                        if let Some(device) = app.devices.get(app.selected_device).cloned() {
+                            app.run_sender(device.address.clone(), file_path);
                         }
-                        KeyCode::Char('s') => {
-                            app.start_scan();
-                        }
-                        KeyCode::Char('r') => {
-                            app.toggle_receive_mode();
-                        }
-                        KeyCode::Up | KeyCode::Char('k') => app.previous_device(),
-                        KeyCode::Down | KeyCode::Char('j') => app.next_device(),
-                        KeyCode::Enter => {
-                            // Check if we have a file to send and a valid device selected
-                            if let Some(file_path) = app.file_to_send.clone() {
-                                if let Some(device) = app.devices.get(app.selected_device).cloned()
-                                {
-                                    app.run_sender(device.address.to_string(), file_path);
-                                }
-                            } else {
-                                app.select_device();
-                            }
-                        }
-                        KeyCode::Tab => app.next_tab(),
-                        KeyCode::Char('1') => app.tab = app::Tab::Devices,
-                        KeyCode::Char('2') => app.tab = app::Tab::Transfer,
-                        KeyCode::Char('3') => app.tab = app::Tab::Log,
-                        KeyCode::Char('d') => {
-                            app.toggle_log_level();
-                        }
-                        KeyCode::Char('c') => {
-                            app.clear_logs();
-                        }
-                        _ => {}
+                    } else {
+                        app.select_device();
                     }
                 }
+                KeyCode::Tab => app.next_tab(),
+                KeyCode::Char('1') => app.tab = app::Tab::Devices,
+                KeyCode::Char('2') => app.tab = app::Tab::Transfer,
+                KeyCode::Char('3') => app.tab = app::Tab::Log,
+                KeyCode::Char('d') => {
+                    app.toggle_log_level();
+                }
+                KeyCode::Char('c') => {
+                    app.clear_logs();
+                }
+                _ => {}
             }
         }
 

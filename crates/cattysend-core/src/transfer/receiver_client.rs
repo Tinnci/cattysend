@@ -13,7 +13,7 @@
 //! - 使用 HTTPS 传输（跳过证书验证，因为发送端使用自签名证书）
 //! - WebSocket 协议用于状态同步
 
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 
 use crate::transfer::protocol::{SendRequest, WsMessage};
 use futures_util::{SinkExt, StreamExt};
@@ -121,7 +121,7 @@ impl ReceiverClient {
                             "threadLimit": 5
                         })),
                     );
-                    write.send(Message::Text(ack.to_string().into())).await?;
+                    write.send(Message::Text(ack.to_string())).await?;
                 }
 
                 "sendRequest" => {
@@ -136,22 +136,24 @@ impl ReceiverClient {
                         };
                         total_size = request.total_size;
 
+                        // 获取任务 ID
+                        let req_task_id = request.get_task_id();
+
                         // 询问用户是否接受
                         if callback.on_send_request(&request) {
-                            task_id = Some(request.task_id.clone());
+                            task_id = Some(req_task_id.clone());
 
                             // 发送 ACK
                             let ack = WsMessage::ack(ws_msg.id, "sendRequest", None);
-                            write.send(Message::Text(ack.to_string().into())).await?;
+                            write.send(Message::Text(ack.to_string())).await?;
 
                             // 开始下载
                             break;
                         } else {
                             // 拒绝
                             msg_id += 1;
-                            let status =
-                                WsMessage::status(msg_id, &request.task_id, 3, "user refuse");
-                            write.send(Message::Text(status.to_string().into())).await?;
+                            let status = WsMessage::status(msg_id, &req_task_id, 3, "user refuse");
+                            write.send(Message::Text(status.to_string())).await?;
                             return Err(anyhow::anyhow!("User rejected transfer"));
                         }
                     }
@@ -160,7 +162,7 @@ impl ReceiverClient {
                 _ => {
                     // 发送 ACK
                     let ack = WsMessage::ack(ws_msg.id, &ws_msg.name, None);
-                    write.send(Message::Text(ack.to_string().into())).await?;
+                    write.send(Message::Text(ack.to_string())).await?;
                 }
             }
         }
@@ -188,7 +190,7 @@ impl ReceiverClient {
         // 发送完成状态
         msg_id += 1;
         let status = WsMessage::status(msg_id, &task_id, 1, "ok");
-        write.send(Message::Text(status.to_string().into())).await?;
+        write.send(Message::Text(status.to_string())).await?;
 
         callback.on_complete(files.clone());
 
@@ -213,7 +215,7 @@ impl ReceiverClient {
                 let mut file = archive.by_index(i)?;
                 let is_dir = file.is_dir();
                 let name = file.name().to_string();
-                let filename = name.split('/').last().unwrap_or(&name).to_string();
+                let filename = name.split('/').next_back().unwrap_or(&name).to_string();
                 let mut buffer = Vec::new();
                 if !is_dir {
                     file.read_to_end(&mut buffer)?;

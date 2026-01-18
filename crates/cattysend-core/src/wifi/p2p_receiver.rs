@@ -223,12 +223,12 @@ impl WiFiP2pReceiver {
         for line in stdout.lines() {
             if line.contains("inet ") {
                 let parts: Vec<&str> = line.split_whitespace().collect();
-                if let Some(pos) = parts.iter().position(|&s| s == "inet") {
-                    if let Some(ip_range) = parts.get(pos + 1) {
-                        if let Some(ip) = ip_range.split('/').next() {
-                            return Ok(ip.to_string());
-                        }
-                    }
+                if let Some(pos) = parts.iter().position(|&s| s == "inet")
+                    && let Some(ip) = parts
+                        .get(pos + 1)
+                        .and_then(|ip_range| ip_range.split('/').next())
+                {
+                    return Ok(ip.to_string());
                 }
             }
         }

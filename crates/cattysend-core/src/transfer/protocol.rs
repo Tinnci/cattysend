@@ -23,6 +23,16 @@ pub struct WsMessage {
     pub payload: Option<Value>,
 }
 
+impl std::fmt::Display for WsMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}:{}", self.msg_type, self.id, self.name)?;
+        if let Some(payload) = &self.payload {
+            write!(f, "?{}", payload)?;
+        }
+        Ok(())
+    }
+}
+
 impl WsMessage {
     /// 解析 CatShare 格式的消息
     pub fn parse(text: &str) -> Option<Self> {
@@ -42,16 +52,6 @@ impl WsMessage {
             name,
             payload,
         })
-    }
-
-    /// 序列化为 CatShare 格式
-    pub fn to_string(&self) -> String {
-        let mut result = format!("{}:{}:{}", self.msg_type, self.id, self.name);
-        if let Some(payload) = &self.payload {
-            result.push('?');
-            result.push_str(&payload.to_string());
-        }
-        result
     }
 
     /// 创建 action 消息
@@ -105,18 +105,41 @@ impl WsMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SendRequest {
-    pub task_id: String,
-    pub id: String,
-    pub sender_id: String,
+    /// 任务 ID (某些版本可能使用 id 代替 taskId)
+    #[serde(default)]
+    pub task_id: Option<String>,
+    /// 任务 ID 的别名
+    #[serde(default)]
+    pub id: Option<String>,
+    /// 发送者 ID (可选)
+    #[serde(default)]
+    pub sender_id: Option<String>,
     pub sender_name: String,
     pub file_name: String,
     pub mime_type: String,
     pub file_count: u32,
     pub total_size: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub cat_share_text: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub thumbnail: Option<String>,
+}
+
+impl SendRequest {
+    /// 获取任务 ID，优先使用 task_id，否则使用 id
+    pub fn get_task_id(&self) -> String {
+        self.task_id
+            .clone()
+            .or_else(|| self.id.clone())
+            .unwrap_or_else(|| "unknown".to_string())
+    }
+
+    /// 获取发送者 ID
+    pub fn get_sender_id(&self) -> String {
+        self.sender_id
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string())
+    }
 }
 
 #[cfg(test)]

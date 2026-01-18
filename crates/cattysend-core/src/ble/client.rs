@@ -179,10 +179,10 @@ impl BleClient {
         let peripherals = self.adapter.peripherals().await?;
 
         for peripheral in peripherals {
-            if let Some(props) = peripheral.properties().await? {
-                if props.address.to_string().to_uppercase() == address.to_uppercase() {
-                    return Ok(peripheral);
-                }
+            if let Some(props) = peripheral.properties().await?
+                && props.address.to_string().to_uppercase() == address.to_uppercase()
+            {
+                return Ok(peripheral);
             }
         }
 

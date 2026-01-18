@@ -175,7 +175,7 @@ impl App {
         let device = self
             .devices
             .iter()
-            .find(|d| d.address.to_string() == device_addr)
+            .find(|d| d.address == device_addr)
             .cloned();
 
         if let Some(device) = device {

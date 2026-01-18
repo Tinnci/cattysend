@@ -83,20 +83,20 @@ impl BleScanner {
                     match event {
                         Some(AdapterEvent::DeviceAdded(addr)) => {
                             let device = adapter.device(addr)?;
-                            if let Ok(Some(dev)) = self.parse_device(&device).await {
-                                if !discovered_map.contains_key(&addr) {
-                                    debug!(
-                                        "CatShare device found: addr={}, name='{}'",
-                                        addr, dev.name
-                                    );
+                            if let Ok(Some(dev)) = self.parse_device(&device).await
+                                && let std::collections::hash_map::Entry::Vacant(e) = discovered_map.entry(addr)
+                            {
+                                debug!(
+                                    "CatShare device found: addr={}, name='{}'",
+                                    addr, dev.name
+                                );
 
-                                    // 实时汇报
-                                    if let Some(ref cb) = callback {
-                                        cb.on_device_found(dev.clone()).await;
-                                    }
-
-                                    discovered_map.insert(addr, dev);
+                                // 实时汇报
+                                if let Some(ref cb) = callback {
+                                    cb.on_device_found(dev.clone()).await;
                                 }
+
+                                e.insert(dev);
                             }
                         }
                         None => break,
@@ -110,7 +110,7 @@ impl BleScanner {
         let device_addrs = adapter.device_addresses().await?;
         debug!("Checking {} cached devices", device_addrs.len());
         for addr in device_addrs {
-            if !discovered_map.contains_key(&addr) {
+            if let std::collections::hash_map::Entry::Vacant(e) = discovered_map.entry(addr) {
                 let device = adapter.device(addr)?;
                 if let Ok(Some(dev)) = self.parse_device(&device).await {
                     debug!(
@@ -123,7 +123,7 @@ impl BleScanner {
                         cb.on_device_found(dev.clone()).await;
                     }
 
-                    discovered_map.insert(addr, dev);
+                    e.insert(dev);
                 }
             }
         }
@@ -150,24 +150,24 @@ impl BleScanner {
         // 如果名称未知，尝试从厂商数据中提取
         if name == "<unknown>" {
             let mut candidates = Vec::new();
-            for (_, data) in &manufacturer_data {
+            for data in manufacturer_data.values() {
                 let mut current_seq = Vec::new();
                 for &b in data {
                     if (32..=126).contains(&b) {
                         current_seq.push(b);
                     } else {
-                        if current_seq.len() >= 3 {
-                            if let Ok(s) = String::from_utf8(current_seq.clone()) {
-                                candidates.push(s.trim().to_string());
-                            }
+                        if current_seq.len() >= 3
+                            && let Ok(s) = String::from_utf8(current_seq.clone())
+                        {
+                            candidates.push(s.trim().to_string());
                         }
                         current_seq.clear();
                     }
                 }
-                if current_seq.len() >= 3 {
-                    if let Ok(s) = String::from_utf8(current_seq) {
-                        candidates.push(s.trim().to_string());
-                    }
+                if current_seq.len() >= 3
+                    && let Ok(s) = String::from_utf8(current_seq)
+                {
+                    candidates.push(s.trim().to_string());
                 }
             }
 
@@ -206,7 +206,7 @@ impl BleScanner {
             b[0] == 0 && b[1] == 0 && b[4] == 0 && b[5] == 0 &&
             b[2] == 0x33 && (0x31..=0x34).contains(&b[3]) &&
             b[6] == 0x10 && b[7] == 0x00 && // 标准蓝牙基准 UUID 的一部分
-            &b[8..] == &[0x80, 0x00, 0x00, 0x80, 0x5f, 0x9b, 0x34, 0xfb]
+            b[8..] == [0x80, 0x00, 0x00, 0x80, 0x5f, 0x9b, 0x34, 0xfb]
         };
 
         let mta_uuid_in_list = uuids.iter().any(is_mta_uuid);
@@ -274,22 +274,19 @@ impl BleScanner {
             let mut sender_id = "0000".to_string();
             let mut supports_5ghz = false;
 
-            if let Some(data) = identity_data {
-                if data.len() >= 26 {
-                    let id_raw = ((data[8] as u16) << 8) | (data[9] as u16);
-                    sender_id = format!("{:04x}", id_raw);
+            if let Some(data) = identity_data
+                && data.len() >= 26
+            {
+                let id_raw = ((data[8] as u16) << 8) | (data[9] as u16);
+                sender_id = format!("{:04x}", id_raw);
 
-                    let mut name_bytes = Vec::new();
-                    for i in 10..26 {
-                        if data[i] != 0 {
-                            name_bytes.push(data[i]);
-                        } else {
-                            break;
-                        }
-                    }
-                    if let Ok(n) = String::from_utf8(name_bytes) {
-                        name = n;
-                    }
+                let name_bytes: Vec<u8> = data[10..26]
+                    .iter()
+                    .copied()
+                    .take_while(|&b| b != 0)
+                    .collect();
+                if let Ok(n) = String::from_utf8(name_bytes) {
+                    name = n;
                 }
             }
 
@@ -305,7 +302,7 @@ impl BleScanner {
 
             if brand_id.is_none() {
                 let mfdata = device.manufacturer_data().await?.unwrap_or_default();
-                brand_id = mfdata.keys().next().map(|&k| k as u16);
+                brand_id = mfdata.keys().next().copied();
             }
 
             info!(
