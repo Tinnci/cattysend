@@ -104,33 +104,67 @@ impl WiFiP2pReceiver {
 
     /// 使用 nmcli 连接
     async fn connect_nmcli(&self, ssid: &str, psk: &str) -> anyhow::Result<String> {
+        use log::{debug, warn};
+
         // 先删除旧连接
         let _ = Command::new("nmcli")
             .args(["connection", "delete", ssid])
             .output();
 
-        let output = Command::new("nmcli")
-            .args([
-                "device",
-                "wifi",
-                "connect",
-                ssid,
-                "password",
-                psk,
-                "ifname",
-                &self.interface,
-            ])
-            .output()?;
+        // WiFi Direct 热点可能需要一些时间才能被发现
+        // 我们尝试多次扫描和连接
+        let max_retries = 5;
+        let mut last_error = String::new();
 
-        if !output.status.success() {
-            let err = String::from_utf8_lossy(&output.stderr);
-            return Err(anyhow::anyhow!("nmcli connection failed: {}", err));
+        for attempt in 1..=max_retries {
+            debug!("WiFi connection attempt {}/{}", attempt, max_retries);
+
+            // 触发 WiFi 扫描
+            let _ = Command::new("nmcli")
+                .args(["device", "wifi", "rescan", "ifname", &self.interface])
+                .output();
+
+            // 等待扫描完成
+            tokio::time::sleep(Duration::from_secs(2)).await;
+
+            // 尝试连接
+            let output = Command::new("nmcli")
+                .args([
+                    "device",
+                    "wifi",
+                    "connect",
+                    ssid,
+                    "password",
+                    psk,
+                    "ifname",
+                    &self.interface,
+                ])
+                .output()?;
+
+            if output.status.success() {
+                debug!("WiFi connection successful on attempt {}", attempt);
+                // 等待 DHCP
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                return self.get_interface_ip();
+            }
+
+            last_error = String::from_utf8_lossy(&output.stderr).to_string();
+            warn!(
+                "WiFi connection attempt {} failed: {}",
+                attempt,
+                last_error.trim()
+            );
+
+            if attempt < max_retries {
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            }
         }
 
-        // 等待 DHCP
-        tokio::time::sleep(Duration::from_secs(2)).await;
-
-        self.get_interface_ip()
+        Err(anyhow::anyhow!(
+            "nmcli connection failed after {} attempts: {}",
+            max_retries,
+            last_error
+        ))
     }
 
     /// 断开连接
