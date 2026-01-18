@@ -93,6 +93,18 @@ impl TransferServer {
         self.port
     }
 
+    /// 订阅传输状态更新
+    pub fn subscribe_status(&self) -> broadcast::Receiver<TransferStatus> {
+        let state = self.state.blocking_lock();
+        state.status_tx.subscribe()
+    }
+
+    /// 异步订阅传输状态更新
+    pub async fn subscribe_status_async(&self) -> broadcast::Receiver<TransferStatus> {
+        let state = self.state.lock().await;
+        state.status_tx.subscribe()
+    }
+
     /// 启动服务器（HTTP 版本，用于测试）
     pub async fn start(&mut self) -> anyhow::Result<u16> {
         let state = self.state.clone();
@@ -250,10 +262,20 @@ async fn handle_websocket_connection(
                         if status_type == 1 {
                             // 传输完成
                             info!("Transfer completed successfully");
+                            let _ = state.lock().await.status_tx.send(TransferStatus::Completed);
                             break;
                         } else if status_type == 3 {
                             // 用户拒绝
                             info!("Transfer rejected by receiver");
+                            let reason = payload
+                                .get("reason")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("rejected");
+                            let _ = state
+                                .lock()
+                                .await
+                                .status_tx
+                                .send(TransferStatus::Rejected(reason.to_string()));
                             break;
                         }
                     }

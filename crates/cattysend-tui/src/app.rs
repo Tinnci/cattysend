@@ -452,8 +452,15 @@ impl App {
                 LogLevel::Info,
                 format!("选中设备: {} ({})", device.name, device.address),
             );
-            // TODO: 这里应弹出文件选择，目前先占位
-            self.add_log(LogLevel::Warn, "发送功能尚在完善中".to_string());
+            // 提示用户如何发送文件
+            self.add_log(
+                LogLevel::Info,
+                "💡 使用方法: cargo run -p cattysend-tui <文件路径>".to_string(),
+            );
+            self.add_log(
+                LogLevel::Info,
+                "   然后按 Enter 发送到选中的设备".to_string(),
+            );
         }
     }
 

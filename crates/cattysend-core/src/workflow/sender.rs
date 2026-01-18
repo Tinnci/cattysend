@@ -142,18 +142,49 @@ impl Sender {
 
         callback.on_status("等待接收端连接...");
 
-        // 等待传输完成
-        // TODO: 监听传输状态并更新进度
+        // 订阅传输状态
+        let mut status_rx = server.subscribe_status_async().await;
 
-        // 简单等待一段时间让传输完成
-        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        // 等待传输完成或超时
+        let timeout = std::time::Duration::from_secs(300); // 5 分钟超时
+        let result = tokio::time::timeout(timeout, async {
+            loop {
+                match status_rx.recv().await {
+                    Ok(crate::transfer::TransferStatus::Completed) => {
+                        callback.on_status("传输完成！");
+                        return Ok(());
+                    }
+                    Ok(crate::transfer::TransferStatus::Rejected(reason)) => {
+                        return Err(anyhow::anyhow!("接收端拒绝: {}", reason));
+                    }
+                    Ok(crate::transfer::TransferStatus::Transferring { progress }) => {
+                        let percent = (progress * 100.0) as u64;
+                        callback.on_progress(percent, 100);
+                    }
+                    Ok(crate::transfer::TransferStatus::Failed(e)) => {
+                        return Err(anyhow::anyhow!("传输失败: {}", e));
+                    }
+                    Err(e) => {
+                        // 通道关闭，可能是服务器停止
+                        return Err(anyhow::anyhow!("状态通道错误: {}", e));
+                    }
+                    _ => {}
+                }
+            }
+        })
+        .await;
 
         // 清理
         self.wifi_sender.stop_group().await?;
 
-        callback.on_complete();
-
-        Ok(())
+        match result {
+            Ok(Ok(())) => {
+                callback.on_complete();
+                Ok(())
+            }
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(anyhow::anyhow!("传输超时")),
+        }
     }
 }
 
