@@ -20,6 +20,75 @@ pub fn draw(frame: &mut Frame, app: &App) {
     draw_header(frame, app, chunks[0]);
     draw_main(frame, app, chunks[1]);
     draw_status_bar(frame, app, chunks[2]);
+
+    if app.show_perm_warning {
+        draw_popup(frame, app);
+    }
+}
+
+fn draw_popup(frame: &mut Frame, _app: &App) {
+    let area = centered_rect(70, 50, frame.area());
+    let block = Block::default()
+        .title(" 📡 网络配置提示 ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::LightCyan))
+        .bg(Color::Black);
+
+    let text = vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("💡 提示: ", Style::default().fg(Color::Cyan).bold()),
+            Span::raw("本项目已切换至更优雅的 NetworkManager 方案。"),
+        ]),
+        Line::from(""),
+        Line::from("双连接 (Concurrent Mode) 特性现在依赖于系统中的 NetworkManager。"),
+        Line::from(""),
+        Line::from(vec![Span::styled(
+            "✅ 优势: ",
+            Style::default().fg(Color::Green).bold(),
+        )]),
+        Line::from("  • 无需 root/sudo 权限"),
+        Line::from("  • 自动管理多网卡并发连接"),
+        Line::from("  • 连接更稳健，断开自动恢复"),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("⚠️ 注意: ", Style::default().fg(Color::Yellow).bold()),
+            Span::raw("如果连接失败，请确保已安装 nmcli 并运行 NetworkManager 服务。"),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            " [ 按任意键关闭此提示并继续 ] ",
+            Style::default().fg(Color::Gray).italic(),
+        )),
+    ];
+
+    let paragraph = Paragraph::new(text)
+        .block(block)
+        .alignment(Alignment::Left)
+        .wrap(Wrap { trim: true });
+
+    frame.render_widget(ratatui::widgets::Clear, area); // 这是一个弹窗，需要清除背景
+    frame.render_widget(paragraph, area);
+}
+
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(r);
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1]
 }
 
 fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
@@ -30,11 +99,17 @@ fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
         Tab::Log => 2,
     };
 
+    let perm_status = if app.has_nmcli && app.has_net_raw {
+        Span::styled(" 🛡️ NM:OK ", Style::default().fg(Color::Green))
+    } else {
+        Span::styled(" 🔓 NM:ERR ", Style::default().fg(Color::Red))
+    };
+
     let tabs = Tabs::new(titles)
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(" Cattysend TUI "),
+                .title(Line::from(vec![Span::raw(" Cattysend TUI "), perm_status])),
         )
         .select(selected)
         .style(Style::default().fg(Color::White))

@@ -2,21 +2,17 @@
 //!
 //! 连接到发送端创建的 P2P 热点。
 //!
-//! # 双连接支持
+//! # 连接策略（优先级从高到低）
 //!
-//! 在支持多接口的网卡上，优先使用独立的 P2P 接口连接，
-//! 这样不会断开原有的 WiFi 连接。
-//!
-//! # 实现方式
-//!
-//! 1. 检测是否支持多接口（双连接）
-//! 2. 如果支持，创建虚拟 P2P 接口进行连接
-//! 3. 如果不支持或失败，回退到使用主接口
+//! 1. **nmcli wifi-p2p** (推荐): 使用 NetworkManager 原生 P2P 支持，
+//!    不需要 sudo，不会断开现有 WiFi。
+//! 2. **普通 WiFi 连接**: 如果 P2P 不可用，退回到普通连接模式，
+//!    会临时断开现有 WiFi。
 //!
 //! # 注意事项
 //!
 //! - 连接后自动获取 DHCP 分配的 IP 地址
-//! - 断开时会清理相关网络配置和虚拟接口
+//! - 断开时会清理相关网络配置
 
 use log::{debug, info, warn};
 
@@ -29,8 +25,8 @@ use std::time::Duration;
 pub struct P2pReceiverConfig {
     /// 主 WiFi 接口名（如 wlan0）
     pub main_interface: String,
-    /// P2P 接口名（如 p2p0, 会自动创建）
-    pub p2p_interface: Option<String>,
+    /// P2P 设备接口名（如 p2p-dev-wlan0）
+    pub p2p_device: Option<String>,
     /// 是否优先保持原有 WiFi 连接
     pub preserve_wifi: bool,
 }
@@ -39,7 +35,7 @@ impl Default for P2pReceiverConfig {
     fn default() -> Self {
         Self {
             main_interface: "wlan0".to_string(),
-            p2p_interface: None,
+            p2p_device: None,
             preserve_wifi: true,
         }
     }
@@ -50,10 +46,10 @@ pub struct WiFiP2pReceiver {
     config: P2pReceiverConfig,
     /// 实际使用的接口名
     active_interface: Option<String>,
-    /// 是否创建了虚拟接口
-    created_virtual_interface: bool,
-    /// 保存的 wpa_supplicant 网络 ID
-    network_id: Option<String>,
+    /// NetworkManager 连接名（用于断开时清理）
+    nm_connection_name: Option<String>,
+    /// 是否使用了 P2P 模式（true = 双连接成功）
+    used_p2p_mode: bool,
 }
 
 impl WiFiP2pReceiver {
@@ -64,8 +60,8 @@ impl WiFiP2pReceiver {
                 ..Default::default()
             },
             active_interface: None,
-            created_virtual_interface: false,
-            network_id: None,
+            nm_connection_name: None,
+            used_p2p_mode: false,
         }
     }
 
@@ -73,8 +69,8 @@ impl WiFiP2pReceiver {
         Self {
             config,
             active_interface: None,
-            created_virtual_interface: false,
-            network_id: None,
+            nm_connection_name: None,
+            used_p2p_mode: false,
         }
     }
 
@@ -87,456 +83,163 @@ impl WiFiP2pReceiver {
             info.ssid, self.config.preserve_wifi
         );
 
-        // 如果配置了保持原有 WiFi，尝试使用双连接
+        // 策略1: 尝试使用 nmcli P2P 模式（不需要 sudo，不会断开现有 WiFi）
         if self.config.preserve_wifi {
-            // 首先检查是否有创建虚拟接口的权限
-            let has_net_admin = self.check_net_admin_capability();
+            if let Some(p2p_dev) = self.find_p2p_device() {
+                info!("Found P2P device: {}, attempting dual connection", p2p_dev);
 
-            if has_net_admin {
-                debug!("CAP_NET_ADMIN capability available");
-            } else {
-                debug!("CAP_NET_ADMIN not available, virtual interface creation will be skipped");
-            }
-
-            // 检查是否支持双连接
-            if self.supports_multi_interface().await? {
-                info!("Multi-interface supported, attempting dual connection");
-
-                // 尝试使用 wpa_supplicant P2P 接口（不需要 sudo）
-                match self.connect_p2p_interface(&info.ssid, &info.psk).await {
-                    Ok(ip) => return Ok(ip),
-                    Err(e) => debug!("P2P interface connection failed: {}", e),
-                }
-
-                // 尝试创建虚拟接口（需要权限）
-                if has_net_admin {
-                    match self.connect_virtual_interface(&info.ssid, &info.psk).await {
-                        Ok(ip) => return Ok(ip),
-                        Err(e) => warn!("Virtual interface connection failed: {}", e),
+                match self
+                    .connect_nmcli_p2p(&p2p_dev, &info.ssid, &info.psk)
+                    .await
+                {
+                    Ok(ip) => {
+                        self.used_p2p_mode = true;
+                        return Ok(ip);
                     }
-                } else {
-                    info!(
-                        "Skipping virtual interface (no CAP_NET_ADMIN). Run 'cargo xtask setup-caps' for dual-connection support."
-                    );
+                    Err(e) => {
+                        warn!("P2P connection failed: {}, falling back to normal WiFi", e);
+                    }
                 }
-
-                warn!("Dual connection failed, falling back to main interface");
             } else {
-                debug!("Multi-interface not supported, using main interface");
+                debug!("No P2P device found, using normal WiFi connection");
             }
         }
 
-        // 回退：使用主接口（会断开原有 WiFi）
+        // 策略2: 普通 WiFi 连接（会断开现有 WiFi）
         info!(
             "Using main interface '{}' (original WiFi will disconnect)",
             self.config.main_interface
         );
         self.active_interface = Some(self.config.main_interface.clone());
 
-        // 尝试使用 wpa_cli 连接
-        if let Ok(ip) = self
-            .connect_wpa(&self.config.main_interface.clone(), &info.ssid, &info.psk)
-            .await
-        {
-            return Ok(ip);
-        }
-
-        // 尝试使用 nmcli 连接
-        self.connect_nmcli(&self.config.main_interface.clone(), &info.ssid, &info.psk)
+        self.connect_nmcli_wifi(&self.config.main_interface.clone(), &info.ssid, &info.psk)
             .await
     }
 
-    /// 检查是否有 CAP_NET_ADMIN 权限
-    fn check_net_admin_capability(&self) -> bool {
-        // 方法1: 检查当前进程是否有 CAP_NET_ADMIN
-        // 通过尝试一个需要该权限的操作来检测
-
-        // 尝试读取 /proc/self/status 检查 CapEff
-        if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
-            for line in status.lines() {
-                if line.starts_with("CapEff:")
-                    && let Some(hex) = line.split_whitespace().nth(1)
-                    && let Ok(caps) = u64::from_str_radix(hex, 16)
-                {
-                    // CAP_NET_ADMIN = 12, so bit 12
-                    let has_cap = (caps & (1 << 12)) != 0;
-                    if has_cap {
-                        return true;
-                    }
-                }
-            }
-        }
-
-        // 方法2: 检查是否是 root
-        unsafe {
-            if libc::geteuid() == 0 {
-                return true;
-            }
-        }
-
-        // 方法3: 尝试执行一个无害的 iw 命令（检查是否能获取设备信息）
-        // 如果进程有 CAP_NET_ADMIN，iw 命令会成功
-        if let Ok(output) = Command::new("iw")
-            .args(["dev", &self.config.main_interface, "info"])
+    /// 查找 P2P 设备接口（如 p2p-dev-wlan0）
+    fn find_p2p_device(&self) -> Option<String> {
+        // 使用 nmcli 查找 wifi-p2p 类型的设备
+        if let Ok(output) = Command::new("nmcli")
+            .args(["-t", "-f", "DEVICE,TYPE", "device"])
             .output()
         {
-            // iw dev info 不需要特权，但这至少确认 iw 可用
-            if output.status.success() {
-                // 进一步检查：尝试无 sudo 创建接口（会快速失败）
-                // 我们只是想知道是否有权限，不真正创建
-                return false; // 保守起见，假设没有权限
-            }
-        }
-
-        false
-    }
-
-    /// 检查是否支持多接口（双连接）
-    async fn supports_multi_interface(&self) -> anyhow::Result<bool> {
-        // 方法1: 检查 iw list 的 interface combinations
-        let output = Command::new("iw").args(["list"]).output()?;
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-
-        // 查找 "valid interface combinations" 部分
-        // 如果 total <= N 且 N >= 2，则支持多接口
-        if stdout.contains("valid interface combinations") {
-            // 检查是否有 "total <= 2" 或更高
+            let stdout = String::from_utf8_lossy(&output.stdout);
             for line in stdout.lines() {
-                if line.contains("total <=")
-                    && let Some(num_str) = line.split("total <=").nth(1)
-                    && let Ok(num) = num_str
-                        .trim()
-                        .split(',')
-                        .next()
-                        .unwrap_or("0")
-                        .trim()
-                        .parse::<u32>()
-                    && num >= 2
-                {
-                    debug!("Multi-interface supported: total <= {}", num);
-                    return Ok(true);
+                let parts: Vec<&str> = line.split(':').collect();
+                if parts.len() >= 2 && parts[1] == "wifi-p2p" {
+                    return Some(parts[0].to_string());
                 }
             }
         }
 
-        // 方法2: 检查是否存在 p2p-dev 接口
-        let output = Command::new("iw").args(["dev"]).output()?;
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        if stdout.contains("p2p-dev-") || stdout.contains("p2p0") {
-            debug!("P2P device interface detected");
-            return Ok(true);
+        // 回退: 尝试标准命名
+        let default_p2p = format!("p2p-dev-{}", self.config.main_interface);
+        if let Ok(output) = Command::new("nmcli")
+            .args(["device", "show", &default_p2p])
+            .output()
+            && output.status.success()
+        {
+            return Some(default_p2p);
         }
 
-        Ok(false)
+        None
     }
 
-    /// 使用 wpa_supplicant 的 P2P 接口连接
-    async fn connect_p2p_interface(&mut self, ssid: &str, psk: &str) -> anyhow::Result<String> {
-        // 查找 P2P 设备接口
-        let p2p_dev = self.find_p2p_device_interface()?;
-        debug!("Using P2P device interface: {}", p2p_dev);
+    /// 使用 nmcli wifi-p2p 连接（不需要 sudo，保持现有 WiFi）
+    async fn connect_nmcli_p2p(
+        &mut self,
+        p2p_device: &str,
+        ssid: &str,
+        psk: &str,
+    ) -> anyhow::Result<String> {
+        debug!("Connecting via nmcli wifi-p2p on device {}", p2p_device);
 
-        // 使用 wpa_cli 的 P2P_CONNECT 或普通连接
-        // 对于 DIRECT-* 网络，我们使用普通扫描+连接方式
+        let conn_name = format!("cattysend-p2p-{}", &ssid[..std::cmp::min(8, ssid.len())]);
 
-        // 创建新的 P2P 组接口
-        let output = Command::new("wpa_cli")
-            .args(["-i", &p2p_dev, "p2p_group_add"])
-            .output()?;
-
-        if output.status.success() {
-            // 等待 p2p-wlan0-* 接口创建
-            tokio::time::sleep(Duration::from_secs(1)).await;
-
-            // 查找新创建的 P2P 组接口
-            if let Ok(p2p_group) = self.find_p2p_group_interface() {
-                self.active_interface = Some(p2p_group.clone());
-
-                // 在 P2P 组接口上连接
-                let ip = self.connect_wpa(&p2p_group, ssid, psk).await?;
-                return Ok(ip);
-            }
-        }
-
-        Err(anyhow::anyhow!("P2P interface connection failed"))
-    }
-
-    /// 创建虚拟接口并连接
-    ///
-    /// 需要 CAP_NET_ADMIN 权限，调用前应先检查 check_net_admin_capability()
-    async fn connect_virtual_interface(&mut self, ssid: &str, psk: &str) -> anyhow::Result<String> {
-        let virt_iface = format!("{}_p2p", self.config.main_interface);
-
-        info!("Creating virtual interface: {}", virt_iface);
-
-        // 先删除可能存在的旧接口（忽略错误）
-        let _ = Command::new("iw")
-            .args(["dev", &virt_iface, "del"])
+        // 先删除可能存在的旧连接
+        let _ = Command::new("nmcli")
+            .args(["connection", "delete", &conn_name])
             .output();
 
-        // 创建虚拟接口 (managed 模式可以连接到 AP)
-        // 需要 CAP_NET_ADMIN 权限
-        let output = Command::new("iw")
+        // 先扫描
+        let _ = Command::new("nmcli")
+            .args(["device", "wifi", "rescan"])
+            .output();
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        // 尝试连接
+        let output = Command::new("nmcli")
             .args([
-                "dev",
-                &self.config.main_interface,
-                "interface",
+                "connection",
                 "add",
-                &virt_iface,
                 "type",
-                "managed",
+                "wifi",
+                "con-name",
+                &conn_name,
+                "ssid",
+                ssid,
+                "wifi-sec.key-mgmt",
+                "wpa-psk",
+                "wifi-sec.psk",
+                psk,
+                "connection.autoconnect",
+                "no",
             ])
             .output()?;
 
         if !output.status.success() {
             let err = String::from_utf8_lossy(&output.stderr);
-            warn!("Failed to create virtual interface: {}", err);
-            return Err(anyhow::anyhow!(
-                "Failed to create virtual interface: {}",
-                err
-            ));
+            return Err(anyhow::anyhow!("Failed to create connection: {}", err));
         }
 
-        self.created_virtual_interface = true;
-        self.active_interface = Some(virt_iface.clone());
+        self.nm_connection_name = Some(conn_name.clone());
 
-        // 启动接口
-        let _ = Command::new("ip")
-            .args(["link", "set", &virt_iface, "up"])
-            .output();
-
-        tokio::time::sleep(Duration::from_millis(500)).await;
-
-        // 启动 wpa_supplicant 在虚拟接口上
-        // 创建临时配置文件
-        let conf_content = format!(
-            r#"ctrl_interface=/tmp/wpa_{virt_iface}
-update_config=1
-
-network={{
-    ssid="{ssid}"
-    psk="{psk}"
-    key_mgmt=WPA-PSK
-    scan_ssid=1
-}}
-"#
-        );
-
-        let conf_path = format!("/tmp/wpa_supplicant_{}.conf", virt_iface);
-        std::fs::write(&conf_path, conf_content)?;
-
-        // 创建控制接口目录
-        let ctrl_dir = format!("/tmp/wpa_{}", virt_iface);
-        let _ = std::fs::create_dir_all(&ctrl_dir);
-
-        // 停止可能存在的旧 wpa_supplicant
-        let _ = Command::new("pkill")
-            .args(["-f", &format!("wpa_supplicant.*{}", virt_iface)])
-            .output();
-
-        // 启动 wpa_supplicant（不需要 sudo，因为使用 /tmp 控制接口）
-        let wpa_output = Command::new("wpa_supplicant")
-            .args(["-B", "-i", &virt_iface, "-c", &conf_path, "-D", "nl80211"])
-            .output()?;
-
-        if !wpa_output.status.success() {
-            let err = String::from_utf8_lossy(&wpa_output.stderr);
-            warn!("Failed to start wpa_supplicant on {}: {}", virt_iface, err);
-            return Err(anyhow::anyhow!("wpa_supplicant failed: {}", err));
-        }
-
-        // 等待连接
-        for i in 1..=10 {
-            tokio::time::sleep(Duration::from_secs(1)).await;
-
-            let status = Command::new("wpa_cli")
-                .args(["-p", &ctrl_dir, "-i", &virt_iface, "status"])
-                .output()?;
-
-            let stdout = String::from_utf8_lossy(&status.stdout);
-            if stdout.contains("wpa_state=COMPLETED") {
-                info!("Virtual interface connected on attempt {}", i);
-
-                // 请求 DHCP
-                let dhcp_result = Command::new("dhclient").args(["-v", &virt_iface]).output();
-
-                if let Err(e) = dhcp_result {
-                    debug!("dhclient failed (may need privileges): {}", e);
-                    // 尝试使用 dhcpcd
-                    let _ = Command::new("dhcpcd").args([&virt_iface]).output();
-                }
-
-                tokio::time::sleep(Duration::from_secs(2)).await;
-
-                return self.get_interface_ip(&virt_iface);
-            }
-        }
-
-        Err(anyhow::anyhow!("Virtual interface connection timeout"))
-    }
-
-    /// 查找 P2P 设备接口
-    fn find_p2p_device_interface(&self) -> anyhow::Result<String> {
-        let output = Command::new("iw").args(["dev"]).output()?;
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-
-        // 查找 p2p-dev-wlan0 或类似接口
-        for line in stdout.lines() {
-            if line.trim().starts_with("Interface") {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if let Some(iface) = parts.get(1)
-                    && (iface.starts_with("p2p-dev-") || *iface == "p2p0")
-                {
-                    return Ok(iface.to_string());
-                }
-            }
-        }
-
-        // 尝试标准名称
-        Ok(format!("p2p-dev-{}", self.config.main_interface))
-    }
-
-    /// 查找 P2P 组接口
-    fn find_p2p_group_interface(&self) -> anyhow::Result<String> {
-        let output = Command::new("iw").args(["dev"]).output()?;
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-
-        for line in stdout.lines() {
-            if line.trim().starts_with("Interface") {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if let Some(iface) = parts.get(1) {
-                    // P2P 组接口格式: p2p-wlan0-0 或 p2p0-0
-                    if iface.starts_with("p2p-")
-                        && iface.contains('-')
-                        && !iface.starts_with("p2p-dev-")
-                    {
-                        return Ok(iface.to_string());
-                    }
-                }
-            }
-        }
-
-        Err(anyhow::anyhow!("No P2P group interface found"))
-    }
-
-    /// 使用 wpa_cli 连接
-    async fn connect_wpa(
-        &mut self,
-        interface: &str,
-        ssid: &str,
-        psk: &str,
-    ) -> anyhow::Result<String> {
-        debug!("Connecting via wpa_cli on interface {}", interface);
-
-        // 添加网络
-        let output = Command::new("wpa_cli")
-            .args(["-i", interface, "add_network"])
+        // 激活连接
+        let output = Command::new("nmcli")
+            .args(["connection", "up", &conn_name])
             .output()?;
 
         if !output.status.success() {
-            return Err(anyhow::anyhow!("Failed to add network"));
+            let err = String::from_utf8_lossy(&output.stderr);
+            // 清理失败的连接
+            let _ = Command::new("nmcli")
+                .args(["connection", "delete", &conn_name])
+                .output();
+            return Err(anyhow::anyhow!("Failed to activate connection: {}", err));
         }
 
-        let network_id = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        self.network_id = Some(network_id.clone());
-
-        // 设置 SSID
-        Command::new("wpa_cli")
-            .args([
-                "-i",
-                interface,
-                "set_network",
-                &network_id,
-                "ssid",
-                &format!("\"{}\"", ssid),
-            ])
-            .output()?;
-
-        // 设置 PSK
-        Command::new("wpa_cli")
-            .args([
-                "-i",
-                interface,
-                "set_network",
-                &network_id,
-                "psk",
-                &format!("\"{}\"", psk),
-            ])
-            .output()?;
-
-        // 设置 scan_ssid=1 (对于 DIRECT- 前缀的热点很重要)
-        Command::new("wpa_cli")
-            .args([
-                "-i",
-                interface,
-                "set_network",
-                &network_id,
-                "scan_ssid",
-                "1",
-            ])
-            .output()?;
-
-        // 启用网络
-        Command::new("wpa_cli")
-            .args(["-i", interface, "enable_network", &network_id])
-            .output()?;
-
-        // 选择网络
-        Command::new("wpa_cli")
-            .args(["-i", interface, "select_network", &network_id])
-            .output()?;
-
-        // 触发扫描
-        let _ = Command::new("wpa_cli")
-            .args(["-i", interface, "scan"])
-            .output();
-
-        // 等待连接
+        // 等待连接建立和 IP 获取
         for i in 1..=10 {
             tokio::time::sleep(Duration::from_secs(1)).await;
 
-            let status = Command::new("wpa_cli")
-                .args(["-i", interface, "status"])
-                .output()?;
-
-            let stdout = String::from_utf8_lossy(&status.stdout);
-            if stdout.contains("wpa_state=COMPLETED") {
-                info!("✅ WiFi connection successful on attempt {}", i);
-
-                // 请求 DHCP (如果需要)
-                if !stdout.contains("ip_address=") {
-                    let _ = Command::new("sudo").args(["dhclient", interface]).output();
-                    tokio::time::sleep(Duration::from_secs(2)).await;
-                }
-
-                return self.get_interface_ip(interface);
+            if let Ok(ip) = self.get_connection_ip(&conn_name) {
+                info!("P2P connection established on attempt {}", i);
+                return Ok(ip);
             }
         }
 
-        Err(anyhow::anyhow!("wpa_cli connection timeout"))
+        Err(anyhow::anyhow!("Timeout waiting for IP address"))
     }
 
-    /// 使用 nmcli 连接
-    async fn connect_nmcli(
+    /// 使用普通 nmcli wifi 连接（会断开现有 WiFi）
+    async fn connect_nmcli_wifi(
         &mut self,
         interface: &str,
         ssid: &str,
         psk: &str,
     ) -> anyhow::Result<String> {
-        debug!("Connecting via nmcli on interface {}", interface);
+        debug!("Connecting via nmcli wifi on interface {}", interface);
 
-        // 先删除旧连接
+        let conn_name = format!("cattysend-wifi-{}", &ssid[..std::cmp::min(8, ssid.len())]);
+
+        // 先删除可能存在的旧连接
         let _ = Command::new("nmcli")
-            .args(["connection", "delete", ssid])
+            .args(["connection", "delete", &conn_name])
             .output();
 
         // WiFi Direct 热点可能需要一些时间才能被发现
         let max_retries = 5;
-        let mut last_error = String::new();
 
         for attempt in 1..=max_retries {
             debug!("WiFi connection attempt {}/{}", attempt, max_retries);
@@ -548,7 +251,7 @@ network={{
 
             tokio::time::sleep(Duration::from_secs(2)).await;
 
-            // 尝试连接
+            // 尝试直接连接
             let output = Command::new("nmcli")
                 .args([
                     "device", "wifi", "connect", ssid, "password", psk, "ifname", interface,
@@ -557,80 +260,65 @@ network={{
 
             if output.status.success() {
                 info!("✅ WiFi connection successful on attempt {}", attempt);
+                self.nm_connection_name = Some(ssid.to_string());
                 tokio::time::sleep(Duration::from_secs(2)).await;
                 return self.get_interface_ip(interface);
             }
 
-            last_error = String::from_utf8_lossy(&output.stderr).to_string();
-            warn!(
-                "WiFi connection attempt {} failed: {}",
-                attempt,
-                last_error.trim()
-            );
+            let err = String::from_utf8_lossy(&output.stderr);
+            warn!("WiFi connection attempt {} failed: {}", attempt, err.trim());
+        }
 
-            if attempt < max_retries {
-                tokio::time::sleep(Duration::from_secs(2)).await;
+        Err(anyhow::anyhow!(
+            "WiFi connection failed after {} attempts",
+            max_retries
+        ))
+    }
+
+    /// 获取连接的 IP 地址
+    fn get_connection_ip(&self, conn_name: &str) -> anyhow::Result<String> {
+        let output = Command::new("nmcli")
+            .args(["-t", "-f", "IP4.ADDRESS", "connection", "show", conn_name])
+            .output()?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            if line.starts_with("IP4.ADDRESS")
+                && let Some(ip_cidr) = line.split(':').nth(1)
+                && let Some(ip) = ip_cidr.split('/').next()
+            {
+                return Ok(ip.to_string());
             }
         }
 
         Err(anyhow::anyhow!(
-            "nmcli connection failed after {} attempts: {}",
-            max_retries,
-            last_error
+            "No IP address found for connection {}",
+            conn_name
         ))
     }
 
     /// 断开连接并清理
     pub async fn disconnect(&mut self) -> anyhow::Result<()> {
-        if let Some(iface) = &self.active_interface {
-            info!("Disconnecting from WiFi on interface {}", iface);
+        info!("Disconnecting WiFi P2P connection");
 
-            // 断开 wpa_supplicant 连接
-            if let Some(net_id) = &self.network_id {
-                let _ = Command::new("wpa_cli")
-                    .args(["-i", iface, "disable_network", net_id])
-                    .output();
-                let _ = Command::new("wpa_cli")
-                    .args(["-i", iface, "remove_network", net_id])
-                    .output();
-            }
-
-            let _ = Command::new("wpa_cli")
-                .args(["-i", iface, "disconnect"])
+        // 删除 NetworkManager 连接
+        if let Some(conn_name) = &self.nm_connection_name {
+            debug!("Removing NM connection: {}", conn_name);
+            let _ = Command::new("nmcli")
+                .args(["connection", "delete", conn_name])
                 .output();
+        }
 
-            // nmcli 断开
+        // 如果有活动接口，断开它
+        if let Some(iface) = &self.active_interface {
             let _ = Command::new("nmcli")
                 .args(["device", "disconnect", iface])
                 .output();
         }
 
-        // 如果创建了虚拟接口，删除它
-        if self.created_virtual_interface
-            && let Some(iface) = &self.active_interface
-        {
-            info!("Removing virtual interface {}", iface);
-
-            // 停止 wpa_supplicant
-            let _ = Command::new("pkill")
-                .args(["-f", &format!("wpa_supplicant.*{}", iface)])
-                .output();
-
-            // 删除接口
-            let _ = Command::new("iw").args(["dev", iface, "del"]).output();
-
-            // 删除临时配置
-            let conf_path = format!("/tmp/wpa_supplicant_{}.conf", iface);
-            let _ = std::fs::remove_file(conf_path);
-
-            // 删除控制接口目录
-            let ctrl_dir = format!("/tmp/wpa_{}", iface);
-            let _ = std::fs::remove_dir_all(ctrl_dir);
-        }
-
         self.active_interface = None;
-        self.created_virtual_interface = false;
-        self.network_id = None;
+        self.nm_connection_name = None;
+        self.used_p2p_mode = false;
 
         Ok(())
     }
@@ -662,15 +350,13 @@ network={{
 
     /// 检查是否已连接
     pub fn is_connected(&self) -> bool {
-        if let Some(iface) = &self.active_interface {
-            let output = Command::new("wpa_cli")
-                .args(["-i", iface, "status"])
-                .output();
-
-            if let Ok(output) = output {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                return stdout.contains("wpa_state=COMPLETED");
-            }
+        if let Some(conn_name) = &self.nm_connection_name
+            && let Ok(output) = Command::new("nmcli")
+                .args(["-t", "-f", "STATE", "connection", "show", conn_name])
+                .output()
+        {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            return stdout.contains("activated");
         }
         false
     }
@@ -682,21 +368,17 @@ network={{
 
     /// 原有 WiFi 是否保持连接
     pub fn is_dual_connected(&self) -> bool {
-        self.created_virtual_interface
-            || self.active_interface.as_deref() != Some(&self.config.main_interface)
+        self.used_p2p_mode
     }
 }
 
 impl Drop for WiFiP2pReceiver {
     fn drop(&mut self) {
         // 尝试清理（同步版本）
-        if self.created_virtual_interface
-            && let Some(iface) = &self.active_interface
-        {
-            let _ = Command::new("pkill")
-                .args(["-f", &format!("wpa_supplicant.*{}", iface)])
+        if let Some(conn_name) = &self.nm_connection_name {
+            let _ = Command::new("nmcli")
+                .args(["connection", "delete", conn_name])
                 .output();
-            let _ = Command::new("iw").args(["dev", iface, "del"]).output();
         }
     }
 }

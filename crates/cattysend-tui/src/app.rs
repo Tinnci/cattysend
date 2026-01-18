@@ -117,11 +117,17 @@ pub struct App {
 
     // 任务句柄
     pub active_task: Option<tokio::task::JoinHandle<()>>,
+
+    // 权限状态
+    pub has_nmcli: bool,
+    pub has_net_raw: bool,
+    pub show_perm_warning: bool,
 }
 
 impl App {
     pub fn new() -> Self {
         let (event_tx, event_rx) = mpsc::channel(100);
+        let (has_nmcli, has_net_raw) = cattysend_core::wifi::check_capabilities();
 
         let mut app = Self {
             mode: AppMode::Idle,
@@ -137,16 +143,44 @@ impl App {
             event_rx,
             event_tx,
             active_task: None,
+            has_nmcli,
+            has_net_raw,
+            show_perm_warning: !has_nmcli || !has_net_raw,
         };
 
         // 添加初始消息
         app.add_log(LogLevel::Info, "Cattysend TUI 启动".to_string());
+
+        if app.show_perm_warning {
+            if !app.has_nmcli {
+                app.add_log(
+                    LogLevel::Warn,
+                    "⚠️ 系统缺少 nmcli，双连接功能将不可用。".to_string(),
+                );
+            }
+            if !app.has_net_raw {
+                app.add_log(
+                    LogLevel::Warn,
+                    "⚠️ 缺少 CAP_NET_RAW 权限，蓝牙扫描可能受限。".to_string(),
+                );
+            }
+        } else {
+            app.add_log(
+                LogLevel::Info,
+                "✅ NetworkManager 已就绪，双连接支持已激活。".to_string(),
+            );
+        }
+
         app.add_log(
             LogLevel::Info,
             "[s]扫描 [r]接收 [d]日志级别 [c]清空日志 [q]退出".to_string(),
         );
 
         app
+    }
+
+    pub fn dismiss_warning(&mut self) {
+        self.show_perm_warning = false;
     }
 
     pub fn set_file_to_send(&mut self, path: String) {

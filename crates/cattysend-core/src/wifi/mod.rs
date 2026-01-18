@@ -18,6 +18,46 @@ pub mod p2p_sender;
 pub use p2p_receiver::{P2pReceiverConfig, WiFiP2pReceiver};
 pub use p2p_sender::{P2pConfig, WiFiP2pSender};
 
+/// 检查进程是否具有必要的权限
+///
+/// 返回 (has_nmcli, has_net_raw)
+/// - has_nmcli: 系统中是否安装了 NetworkManager (nmcli)
+/// - has_net_raw: 是否有 CAP_NET_RAW (用于 BLE 扫描)
+pub fn check_capabilities() -> (bool, bool) {
+    let mut has_nmcli = false;
+    let mut has_net_raw = false;
+
+    // 检查是否是 root
+    unsafe {
+        if libc::geteuid() == 0 {
+            return (true, true);
+        }
+    }
+
+    // 检查 CAP_NET_RAW (用于 BLE 扫描)
+    if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
+        for line in status.lines() {
+            if line.starts_with("CapEff:")
+                && let Some(hex) = line.split_whitespace().nth(1)
+                && let Ok(caps) = u64::from_str_radix(hex, 16)
+            {
+                // CAP_NET_RAW = 13
+                has_net_raw = (caps & (1 << 13)) != 0;
+            }
+        }
+    }
+
+    // 检查 nmcli 是否可用
+    if let Ok(output) = std::process::Command::new("nmcli")
+        .arg("--version")
+        .output()
+    {
+        has_nmcli = output.status.success();
+    }
+
+    (has_nmcli, has_net_raw)
+}
+
 /// P2pInfo - 与 CatShare 的 P2pInfo 完全兼容
 ///
 /// CatShare Kotlin 定义:

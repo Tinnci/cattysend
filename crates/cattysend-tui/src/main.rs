@@ -118,6 +118,12 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> Result
             && let Event::Key(key) = event::read()?
             && key.kind == KeyEventKind::Press
         {
+            // 如果正在显示权限警告弹窗，拦截所有按键以关闭它
+            if app.show_perm_warning {
+                app.dismiss_warning();
+                continue;
+            }
+
             match key.code {
                 KeyCode::Char('q') | KeyCode::Esc => {
                     return Ok(());
