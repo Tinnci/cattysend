@@ -7,10 +7,11 @@
 //! 4. 通过 HTTP/WebSocket 接收文件
 
 use crate::ble::GattServer;
-use crate::crypto::BleSecurity;
+use crate::crypto::BleSecurityPersistent;
 use crate::transfer::{ReceiverCallback, ReceiverClient, SendRequest};
-use crate::wifi::{P2pInfo, WiFiP2pReceiver};
+use crate::wifi::WiFiP2pReceiver;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 /// 接收进度回调
@@ -64,29 +65,21 @@ impl Default for ReceiveOptions {
 /// 接收端工作流
 pub struct Receiver {
     options: ReceiveOptions,
-    security: Option<BleSecurity>,
+    security: Arc<BleSecurityPersistent>,
 }
 
 impl Receiver {
     pub fn new(options: ReceiveOptions) -> anyhow::Result<Self> {
-        let security = BleSecurity::new()?;
-        Ok(Self {
-            options,
-            security: Some(security),
-        })
+        let security = Arc::new(BleSecurityPersistent::new()?);
+        Ok(Self { options, security })
     }
 
     /// 开始接收模式
     pub async fn start<C: ReceiveProgressCallback>(
-        &mut self, // Need mut to take security
+        &self,
         callback: &C,
     ) -> anyhow::Result<Vec<PathBuf>> {
         callback.on_status("启动接收模式...");
-
-        let security = self
-            .security
-            .take()
-            .ok_or_else(|| anyhow::anyhow!("Security context already used"))?;
 
         // 获取 MAC 地址
         let mac = self.get_mac_address();
@@ -95,8 +88,9 @@ impl Receiver {
         let mut gatt_server = GattServer::new(
             mac,
             self.options.device_name.clone(),
-            security.get_public_key().to_string(),
-        )?;
+            self.security.get_public_key().to_string(),
+        )?
+        .with_security(self.security.clone());
         let mut p2p_rx = gatt_server.take_p2p_receiver().unwrap();
 
         let _handle = gatt_server.start().await?;
@@ -112,24 +106,14 @@ impl Receiver {
             .await
             .ok_or_else(|| anyhow::anyhow!("P2P channel closed"))?;
 
-        callback.on_status("收到连接请求，解密 P2P 信息...");
+        // P2P 信息已由 GattServer 自动解密（如果提供了公钥）
+        let p2p_info = p2p_event.p2p_info;
 
-        // 解密 P2P 信息 (如果需要)
-        let p2p_info = if let Some(sender_key) = &p2p_event.sender_public_key {
-            // 需要解密
-            let cipher = security.derive_session_key(sender_key)?;
-            P2pInfo {
-                id: p2p_event.p2p_info.id.clone(),
-                ssid: cipher.decrypt(&p2p_event.p2p_info.ssid)?,
-                psk: cipher.decrypt(&p2p_event.p2p_info.psk)?,
-                mac: cipher.decrypt(&p2p_event.p2p_info.mac)?,
-                port: p2p_event.p2p_info.port,
-                key: None,
-                cat_share: p2p_event.p2p_info.cat_share,
-            }
+        if p2p_event.sender_public_key.is_some() {
+            callback.on_status("已接收并解密 P2P 信息");
         } else {
-            p2p_event.p2p_info
-        };
+            callback.on_status("已接收 P2P 信息");
+        }
 
         callback.on_status(&format!("连接到 WiFi: {}", p2p_info.ssid));
 

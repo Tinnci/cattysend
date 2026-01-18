@@ -60,12 +60,13 @@ pub mod workflow;
 
 // BLE re-exports
 pub use ble::{
-    BleClient, BleScanner, DeviceInfo, DiscoveredDevice, GattServer, GattServerHandle,
-    MAIN_SERVICE_UUID, P2P_CHAR_UUID, SERVICE_UUID, STATUS_CHAR_UUID, ScanCallback,
+    ADV_SERVICE_UUID, BleClient, BleScanner, DeviceInfo, DiscoveredDevice, GattServer,
+    GattServerHandle, MAIN_SERVICE_UUID, P2P_CHAR_UUID, SERVICE_UUID, STATUS_CHAR_UUID,
+    ScanCallback,
 };
 
 // Crypto re-exports
-pub use crypto::{BleSecurity, SessionCipher};
+pub use crypto::{BleSecurity, BleSecurityPersistent, SessionCipher};
 
 // WiFi re-exports
 pub use wifi::{P2pConfig, P2pInfo, WiFiP2pReceiver, WiFiP2pSender};

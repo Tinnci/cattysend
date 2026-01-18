@@ -17,8 +17,10 @@
 
 use log::{debug, error, info, trace};
 
-use crate::ble::{DeviceInfo, MAIN_SERVICE_UUID, P2P_CHAR_UUID, SERVICE_UUID, STATUS_CHAR_UUID};
-// use crate::crypto::BleSecurity; // Removed
+use crate::ble::{
+    ADV_SERVICE_UUID, DeviceInfo, MAIN_SERVICE_UUID, P2P_CHAR_UUID, STATUS_CHAR_UUID,
+};
+use crate::crypto::BleSecurityPersistent;
 use crate::wifi::P2pInfo;
 use bluer::{
     adv::Advertisement,
@@ -76,6 +78,7 @@ pub struct GattServer {
     p2p_rx: Option<mpsc::Receiver<P2pReceiveEvent>>,
     sender_id: String,
     device_name: String,
+    security: Option<Arc<BleSecurityPersistent>>,
 }
 
 impl GattServer {
@@ -96,7 +99,14 @@ impl GattServer {
             p2p_rx: Some(p2p_rx),
             sender_id,
             device_name,
+            security: None,
         })
+    }
+
+    /// 设置安全上下文，用于自动解密 P2P 信息
+    pub fn with_security(mut self, security: Arc<BleSecurityPersistent>) -> Self {
+        self.security = Some(security);
+        self
     }
 
     /// 获取 sender ID
@@ -154,6 +164,7 @@ impl GattServer {
 
         // P2P 特征 - 可写，接收 P2pInfo JSON
         let p2p_tx_clone = p2p_tx.clone();
+        let security_clone = self.security.clone();
         let p2p_char = Characteristic {
             uuid: P2P_CHAR_UUID,
             write: Some(CharacteristicWrite {
@@ -161,8 +172,9 @@ impl GattServer {
                 write_without_response: true,
                 method: CharacteristicWriteMethod::Fun(Box::new(move |data, _req| {
                     let p2p_tx = p2p_tx_clone.clone();
+                    let security = security_clone.clone();
                     async move {
-                        match process_p2p_write(&data) {
+                        match process_p2p_write(&data, security.as_deref()) {
                             Ok(event) => {
                                 let _ = p2p_tx.send(event).await;
                                 Ok(())
@@ -199,9 +211,9 @@ impl GattServer {
         debug!("GATT application registered successfully");
 
         // 构造 CatShare 兼容的广播数据
-        // 1. 基础服务 UUID
+        // 1. 基础服务 UUID - 使用 ADV_SERVICE_UUID (008123456789 后缀)
         let mut service_uuids = BTreeSet::new();
-        service_uuids.insert(SERVICE_UUID);
+        service_uuids.insert(ADV_SERVICE_UUID);
 
         // 2. 身份/能力 UUID (0000{5G}{Brand}-...)
         // 字节 2: 5GHz 支持 (01)
@@ -243,7 +255,7 @@ impl GattServer {
 
         debug!(
             "Starting BLE advertisement: service_uuid={}, identity_uuid={}, scan_resp_uuid={}",
-            SERVICE_UUID, ident_uuid, scan_resp_uuid
+            ADV_SERVICE_UUID, ident_uuid, scan_resp_uuid
         );
         let adv_handle = adapter.advertise(adv).await?;
         debug!("BLE advertisement started successfully");
@@ -254,7 +266,7 @@ impl GattServer {
         );
         debug!(
             "Advertising with service_uuid={}, identity_uuid={}",
-            SERVICE_UUID, ident_uuid
+            ADV_SERVICE_UUID, ident_uuid
         );
 
         Ok(GattServerHandle {
@@ -266,17 +278,41 @@ impl GattServer {
 }
 
 /// 处理 P2P 特征写入
-fn process_p2p_write(data: &[u8]) -> anyhow::Result<P2pReceiveEvent> {
+///
+/// 如果提供 security 且 P2pInfo 包含发送端公钥 (key 字段)，则自动解密 SSID/PSK/MAC 字段。
+fn process_p2p_write(
+    data: &[u8],
+    security: Option<&BleSecurityPersistent>,
+) -> anyhow::Result<P2pReceiveEvent> {
     let json_str = std::str::from_utf8(data)?;
-    let p2p_info: P2pInfo = serde_json::from_str(json_str)?;
+    let mut p2p_info: P2pInfo = serde_json::from_str(json_str)?;
+
+    let is_encrypted = p2p_info.key.is_some();
+    let sender_public_key = p2p_info.key.clone();
+
+    if let (Some(sender_key), Some(sec)) = (&sender_public_key, security) {
+        debug!("Sender provided public key, decrypting P2P info...");
+        match sec.derive_session_key(sender_key) {
+            Ok(cipher) => {
+                p2p_info.ssid = cipher.decrypt(&p2p_info.ssid).unwrap_or(p2p_info.ssid);
+                p2p_info.psk = cipher.decrypt(&p2p_info.psk).unwrap_or(p2p_info.psk);
+                p2p_info.mac = cipher.decrypt(&p2p_info.mac).unwrap_or(p2p_info.mac);
+                p2p_info.key = None; // 表示已解密
+                info!("Successfully decrypted P2P info");
+            }
+            Err(e) => {
+                error!("Failed to derive session key: {}", e);
+            }
+        }
+    }
 
     info!(
-        "Received P2P info from sender, ssid='{}', port={}",
-        p2p_info.ssid, p2p_info.port
+        "Received P2P info from sender, ssid='{}', port={}, decrypted={}",
+        p2p_info.ssid,
+        p2p_info.port,
+        is_encrypted && p2p_info.key.is_none()
     );
     trace!("Full P2P info: {:?}", p2p_info);
-
-    let sender_public_key = p2p_info.key.clone();
 
     Ok(P2pReceiveEvent {
         p2p_info,

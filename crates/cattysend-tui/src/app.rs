@@ -212,19 +212,24 @@ impl App {
                 });
 
                 // 3. 执行发送
-                let sender = Sender::new(options);
-                match sender
-                    .send_to_device(
-                        &device,
-                        vec![std::path::PathBuf::from(file_path)],
-                        &callback,
-                    )
-                    .await
-                {
-                    Ok(_) => {} // 成功由 Complete 事件处理
+                match Sender::new(options) {
+                    Ok(sender) => {
+                        if let Err(e) = sender
+                            .send_to_device(
+                                &device,
+                                vec![std::path::PathBuf::from(file_path)],
+                                &callback,
+                            )
+                            .await
+                        {
+                            let _ = tx
+                                .send(AppEvent::Error(format!("发送过程错误: {}", e)))
+                                .await;
+                        }
+                    }
                     Err(e) => {
                         let _ = tx
-                            .send(AppEvent::Error(format!("发送过程错误: {}", e)))
+                            .send(AppEvent::Error(format!("无法初始化发送器: {}", e)))
                             .await;
                     }
                 }
@@ -379,7 +384,7 @@ impl App {
 
         let handle = tokio::spawn(async move {
             match Receiver::new(options) {
-                Ok(mut receiver) => {
+                Ok(receiver) => {
                     let (callback, mut rx) = SimpleReceiveCallback::new(true); // auto_accept = true
 
                     // 转发回调事件到 App

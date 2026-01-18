@@ -259,6 +259,95 @@ impl SessionCipherRef<'_> {
     }
 }
 
+/// 持久化 BLE 安全上下文 - 支持多次派生会话密钥
+///
+/// 与 `BleSecurity` 不同，此类型使用 `SecretKey` 而非 `EphemeralSecret`，
+/// 可以多次调用 `derive_session_key` 而不消耗实例。
+///
+/// # 与 CatShare 的兼容性
+///
+/// CatShare 使用单例 `BleSecurity`，可多次调用 `deriveSessionKey`。
+/// 此类型模拟该行为，适用于：
+/// - 接收端 GATT Server（需要持有密钥对等待多个连接）
+/// - 需要验证多个发送端的场景
+///
+/// # 使用示例
+///
+/// ```ignore
+/// let security = BleSecurityPersistent::new()?;
+/// let public_key = security.get_public_key().to_string();
+///
+/// // 可以多次派生会话密钥
+/// let cipher1 = security.derive_session_key(&sender1_key)?;
+/// let cipher2 = security.derive_session_key(&sender2_key)?;
+/// ```
+pub struct BleSecurityPersistent {
+    secret_key: p256::SecretKey,
+    public_key_b64: String,
+}
+
+impl BleSecurityPersistent {
+    /// 生成新的持久化 ECDH 密钥对
+    pub fn new() -> anyhow::Result<Self> {
+        let secret_key = p256::SecretKey::random(&mut OsRng);
+        let public_key = secret_key.public_key();
+
+        // 使用 X.509 SPKI DER 格式编码公钥
+        let spki_der = public_key
+            .to_public_key_der()
+            .map_err(|e| anyhow::anyhow!("Failed to encode public key as SPKI: {}", e))?;
+        let public_key_b64 = general_purpose::STANDARD.encode(spki_der.as_bytes());
+
+        debug!(
+            "Generated persistent ECDH key pair, public key (SPKI) length: {} bytes",
+            spki_der.as_bytes().len()
+        );
+
+        Ok(Self {
+            secret_key,
+            public_key_b64,
+        })
+    }
+
+    /// 获取 Base64 编码的公钥
+    pub fn get_public_key(&self) -> &str {
+        &self.public_key_b64
+    }
+
+    /// 使用对方公钥派生会话密钥（不消耗 self）
+    ///
+    /// 与 `BleSecurity::derive_session_key` 不同，此方法借用 `&self`，
+    /// 可以多次调用。
+    pub fn derive_session_key(&self, peer_pub_key_b64: &str) -> anyhow::Result<SessionCipher> {
+        let peer_pub_bytes = general_purpose::STANDARD.decode(peer_pub_key_b64)?;
+
+        trace!(
+            "Parsing peer public key, length: {} bytes, first byte: 0x{:02x}",
+            peer_pub_bytes.len(),
+            peer_pub_bytes.first().unwrap_or(&0)
+        );
+
+        // 解析对方公钥
+        let peer_public = BleSecurity::parse_public_key(&peer_pub_bytes)?;
+
+        // 使用 diffie_hellman 函数（不消耗私钥）
+        let shared_secret = p256::ecdh::diffie_hellman(
+            self.secret_key.to_nonzero_scalar(),
+            peer_public.as_affine(),
+        );
+
+        // 直接使用原始共享密钥
+        let raw_secret = shared_secret.raw_secret_bytes();
+
+        let mut key = [0u8; 32];
+        key.copy_from_slice(raw_secret.as_slice());
+
+        debug!("ECDH key agreement completed (persistent), derived 32-byte session key");
+
+        Ok(SessionCipher { key })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -327,6 +416,31 @@ mod tests {
             alice_cipher.key, bob_cipher.key,
             "Shared secret should be identical"
         );
+    }
+
+    /// 测试持久化安全上下文的多次派生
+    #[test]
+    fn test_persistent_security() {
+        let persistent = BleSecurityPersistent::new().unwrap();
+        let alice = BleSecurity::new().unwrap();
+        let bob = BleSecurity::new().unwrap();
+
+        let persistent_pub = persistent.get_public_key().to_string();
+        let alice_pub = alice.get_public_key().to_string();
+        let bob_pub = bob.get_public_key().to_string();
+
+        // Persistent 与 Alice 协商
+        let cipher_p_alice = persistent.derive_session_key(&alice_pub).unwrap();
+        let cipher_alice_p = alice.derive_session_key(&persistent_pub).unwrap();
+        assert_eq!(cipher_p_alice.key, cipher_alice_p.key);
+
+        // Persistent 与 Bob 协商 (第二次使用)
+        let cipher_p_bob = persistent.derive_session_key(&bob_pub).unwrap();
+        let cipher_bob_p = bob.derive_session_key(&persistent_pub).unwrap();
+        assert_eq!(cipher_p_bob.key, cipher_bob_p.key);
+
+        // 验证两次派生出的密钥不同（因为 peer 不同）
+        assert_ne!(cipher_p_alice.key, cipher_p_bob.key);
     }
 
     /// 测试跨格式公钥兼容性

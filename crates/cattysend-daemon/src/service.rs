@@ -1,14 +1,14 @@
 //! Core Service - BLE/WiFi/Transfer 管理
 
 use anyhow::Result;
-use cattysend_core::BleSecurity;
+use cattysend_core::BleSecurityPersistent;
 use cattysend_core::ble::DeviceInfo;
 
 pub async fn run_service() -> Result<()> {
     tracing::info!("核心服务初始化...");
 
-    // 生成加密密钥对
-    let security = BleSecurity::new()?;
+    // 生成加密密钥对（持久化，在服务生命周期内保持一致）
+    let security = BleSecurityPersistent::new()?;
     let public_key = security.get_public_key().to_string();
 
     // 获取 P2P 接口 MAC 地址

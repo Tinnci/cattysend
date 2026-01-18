@@ -7,9 +7,11 @@
 //! 4. 等待接收端连接和下载文件
 
 use crate::ble::{BleClient, DiscoveredDevice};
+use crate::crypto::BleSecurityPersistent;
 use crate::transfer::{FileEntry, TransferServer, TransferTask};
 use crate::wifi::{P2pConfig, WiFiP2pSender};
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 /// 发送进度回调
@@ -50,20 +52,24 @@ impl Default for SendOptions {
 pub struct Sender {
     options: SendOptions,
     wifi_sender: WiFiP2pSender,
+    security: Arc<BleSecurityPersistent>,
 }
 
 impl Sender {
-    pub fn new(options: SendOptions) -> Self {
+    pub fn new(options: SendOptions) -> anyhow::Result<Self> {
         let wifi_sender = WiFiP2pSender::with_config(P2pConfig {
             interface: options.wifi_interface.clone(),
             use_5ghz: options.use_5ghz,
             ..Default::default()
         });
 
-        Self {
+        let security = Arc::new(BleSecurityPersistent::new()?);
+
+        Ok(Self {
             options,
             wifi_sender,
-        }
+            security,
+        })
     }
 
     /// 发送文件到指定设备
@@ -129,7 +135,7 @@ impl Sender {
         // 连接到接收端 BLE 设备
         callback.on_status("连接到接收端...");
 
-        let ble_client = BleClient::new().await?;
+        let ble_client = BleClient::new().await?.with_security(self.security.clone());
         let _device_info = ble_client
             .connect_and_handshake(&device.address, &p2p_info, &sender_id)
             .await?;

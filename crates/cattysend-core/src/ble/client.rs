@@ -15,13 +15,13 @@
 //! - P2pInfo 中的敏感字段 (SSID, PSK, MAC) 使用 AES-256-CTR 加密
 //! - 每次连接使用新的临时密钥对
 
-use log::{debug, info, trace};
-
 use crate::ble::{DeviceInfo, MAIN_SERVICE_UUID, P2P_CHAR_UUID, STATUS_CHAR_UUID};
-use crate::crypto::BleSecurity;
+use crate::crypto::{BleSecurity, BleSecurityPersistent};
 use crate::wifi::P2pInfo;
 use btleplug::api::{Central, Characteristic, Manager as _, Peripheral, WriteType};
 use btleplug::platform::{Adapter, Manager, Peripheral as PlatformPeripheral};
+use log::{debug, info, trace};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::time;
 use uuid::Uuid;
@@ -53,6 +53,7 @@ pub enum BleClientError {
 
 pub struct BleClient {
     adapter: Adapter,
+    security: Option<Arc<BleSecurityPersistent>>,
 }
 
 impl BleClient {
@@ -64,7 +65,16 @@ impl BleClient {
             .next()
             .ok_or(BleClientError::NoAdapter)?;
 
-        Ok(Self { adapter })
+        Ok(Self {
+            adapter,
+            security: None,
+        })
+    }
+
+    /// 设置持久化安全上下文，使发送端身份保持稳定
+    pub fn with_security(mut self, security: Arc<BleSecurityPersistent>) -> Self {
+        self.security = Some(security);
+        self
     }
 
     /// 连接到设备并执行 P2P 握手
@@ -107,14 +117,24 @@ impl BleClient {
 
         // 如果对方提供了公钥，派生会话密钥并加密 P2P 信息
         let p2p_data = if let Some(peer_key) = &device_info.key {
-            let security = BleSecurity::new().map_err(|e| {
-                BleClientError::ProtocolError(format!("Failed to init security: {}", e))
-            })?;
-            let sender_public_key = security.get_public_key().to_string();
-
-            let cipher = security.derive_session_key(peer_key).map_err(|e| {
-                BleClientError::ProtocolError(format!("Key exchange failed: {}", e))
-            })?;
+            let (sender_public_key, cipher) = if let Some(sec) = &self.security {
+                // 使用持久化上下文
+                let pub_key = sec.get_public_key().to_string();
+                let cip = sec.derive_session_key(peer_key).map_err(|e| {
+                    BleClientError::ProtocolError(format!("Key exchange failed: {}", e))
+                })?;
+                (pub_key, cip)
+            } else {
+                // 回退到临时上下文
+                let security = BleSecurity::new().map_err(|e| {
+                    BleClientError::ProtocolError(format!("Failed to init security: {}", e))
+                })?;
+                let pub_key = security.get_public_key().to_string();
+                let cip = security.derive_session_key(peer_key).map_err(|e| {
+                    BleClientError::ProtocolError(format!("Key exchange failed: {}", e))
+                })?;
+                (pub_key, cip)
+            };
 
             // 加密 P2P 信息
             let encrypted_p2p = P2pInfo::with_encryption(
