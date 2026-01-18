@@ -182,20 +182,45 @@ fn uninstall(sh: &Shell) -> Result<()> {
 }
 
 fn setup_caps(sh: &Shell) -> Result<()> {
-    println!("🔐 设置 capabilities (免 sudo 网络操作)...");
+    println!("🔐 设置 Linux capabilities (免 sudo 网络操作)...");
+    println!();
+    println!("这将为 Cattysend 二进制文件设置以下权限：");
+    println!("  • CAP_NET_ADMIN - 创建/管理网络接口 (WiFi Direct)");
+    println!("  • CAP_NET_RAW   - BLE 扫描");
+    println!();
 
     build(sh)?;
 
-    // CAP_NET_ADMIN: WiFi P2P 操作
-    // CAP_NET_RAW: BLE 扫描
-    cmd!(
-        sh,
-        "sudo setcap 'cap_net_admin,cap_net_raw+eip' target/release/cattysend-daemon"
-    )
-    .run()?;
+    // 设置所有二进制文件的 capabilities
+    let binaries = [
+        "target/release/cattysend-daemon",
+        "target/release/cattysend-tui",
+        "target/release/cattysend-cli",
+    ];
 
-    println!("✅ Capabilities 设置完成");
-    println!("   守护进程现在可以免 sudo 运行");
+    for bin in binaries {
+        if std::path::Path::new(bin).exists() {
+            println!("📦 设置 {}", bin);
+            cmd!(sh, "sudo setcap 'cap_net_admin,cap_net_raw+eip' {bin}").run()?;
+        }
+    }
+
+    println!();
+    println!("✅ Capabilities 设置完成！");
+    println!();
+    println!("现在可以免 sudo 运行：");
+    println!("  • cattysend-tui   (或 cargo run -p cattysend-tui)");
+    println!("  • cattysend-daemon");
+    println!("  • cattysend-cli");
+    println!();
+    println!("💡 注意：每次重新编译后需要重新运行此命令。");
+    println!("   或者添加到 sudoers 实现永久免密码：");
+    println!();
+    println!("   sudo visudo");
+    println!(
+        "   # 添加: {} ALL=(ALL) NOPASSWD: /usr/sbin/iw, /sbin/ip, /usr/bin/wpa_cli, /usr/sbin/dhclient",
+        std::env::var("USER").unwrap_or("username".to_string())
+    );
     Ok(())
 }
 

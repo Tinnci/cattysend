@@ -89,18 +89,35 @@ impl WiFiP2pReceiver {
 
         // 如果配置了保持原有 WiFi，尝试使用双连接
         if self.config.preserve_wifi {
+            // 首先检查是否有创建虚拟接口的权限
+            let has_net_admin = self.check_net_admin_capability();
+
+            if has_net_admin {
+                debug!("CAP_NET_ADMIN capability available");
+            } else {
+                debug!("CAP_NET_ADMIN not available, virtual interface creation will be skipped");
+            }
+
             // 检查是否支持双连接
             if self.supports_multi_interface().await? {
                 info!("Multi-interface supported, attempting dual connection");
 
-                // 尝试使用 wpa_supplicant P2P 接口
-                if let Ok(ip) = self.connect_p2p_interface(&info.ssid, &info.psk).await {
-                    return Ok(ip);
+                // 尝试使用 wpa_supplicant P2P 接口（不需要 sudo）
+                match self.connect_p2p_interface(&info.ssid, &info.psk).await {
+                    Ok(ip) => return Ok(ip),
+                    Err(e) => debug!("P2P interface connection failed: {}", e),
                 }
 
-                // 尝试创建虚拟接口
-                if let Ok(ip) = self.connect_virtual_interface(&info.ssid, &info.psk).await {
-                    return Ok(ip);
+                // 尝试创建虚拟接口（需要权限）
+                if has_net_admin {
+                    match self.connect_virtual_interface(&info.ssid, &info.psk).await {
+                        Ok(ip) => return Ok(ip),
+                        Err(e) => warn!("Virtual interface connection failed: {}", e),
+                    }
+                } else {
+                    info!(
+                        "Skipping virtual interface (no CAP_NET_ADMIN). Run 'cargo xtask setup-caps' for dual-connection support."
+                    );
                 }
 
                 warn!("Dual connection failed, falling back to main interface");
@@ -110,6 +127,10 @@ impl WiFiP2pReceiver {
         }
 
         // 回退：使用主接口（会断开原有 WiFi）
+        info!(
+            "Using main interface '{}' (original WiFi will disconnect)",
+            self.config.main_interface
+        );
         self.active_interface = Some(self.config.main_interface.clone());
 
         // 尝试使用 wpa_cli 连接
@@ -123,6 +144,51 @@ impl WiFiP2pReceiver {
         // 尝试使用 nmcli 连接
         self.connect_nmcli(&self.config.main_interface.clone(), &info.ssid, &info.psk)
             .await
+    }
+
+    /// 检查是否有 CAP_NET_ADMIN 权限
+    fn check_net_admin_capability(&self) -> bool {
+        // 方法1: 检查当前进程是否有 CAP_NET_ADMIN
+        // 通过尝试一个需要该权限的操作来检测
+
+        // 尝试读取 /proc/self/status 检查 CapEff
+        if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
+            for line in status.lines() {
+                if line.starts_with("CapEff:")
+                    && let Some(hex) = line.split_whitespace().nth(1)
+                    && let Ok(caps) = u64::from_str_radix(hex, 16)
+                {
+                    // CAP_NET_ADMIN = 12, so bit 12
+                    let has_cap = (caps & (1 << 12)) != 0;
+                    if has_cap {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        // 方法2: 检查是否是 root
+        unsafe {
+            if libc::geteuid() == 0 {
+                return true;
+            }
+        }
+
+        // 方法3: 尝试执行一个无害的 iw 命令（检查是否能获取设备信息）
+        // 如果进程有 CAP_NET_ADMIN，iw 命令会成功
+        if let Ok(output) = Command::new("iw")
+            .args(["dev", &self.config.main_interface, "info"])
+            .output()
+        {
+            // iw dev info 不需要特权，但这至少确认 iw 可用
+            if output.status.success() {
+                // 进一步检查：尝试无 sudo 创建接口（会快速失败）
+                // 我们只是想知道是否有权限，不真正创建
+                return false; // 保守起见，假设没有权限
+            }
+        }
+
+        false
     }
 
     /// 检查是否支持多接口（双连接）
@@ -198,20 +264,22 @@ impl WiFiP2pReceiver {
     }
 
     /// 创建虚拟接口并连接
+    ///
+    /// 需要 CAP_NET_ADMIN 权限，调用前应先检查 check_net_admin_capability()
     async fn connect_virtual_interface(&mut self, ssid: &str, psk: &str) -> anyhow::Result<String> {
         let virt_iface = format!("{}_p2p", self.config.main_interface);
 
         info!("Creating virtual interface: {}", virt_iface);
 
-        // 先删除可能存在的旧接口
-        let _ = Command::new("sudo")
-            .args(["iw", "dev", &virt_iface, "del"])
+        // 先删除可能存在的旧接口（忽略错误）
+        let _ = Command::new("iw")
+            .args(["dev", &virt_iface, "del"])
             .output();
 
         // 创建虚拟接口 (managed 模式可以连接到 AP)
-        let output = Command::new("sudo")
+        // 需要 CAP_NET_ADMIN 权限
+        let output = Command::new("iw")
             .args([
-                "iw",
                 "dev",
                 &self.config.main_interface,
                 "interface",
@@ -235,8 +303,8 @@ impl WiFiP2pReceiver {
         self.active_interface = Some(virt_iface.clone());
 
         // 启动接口
-        let _ = Command::new("sudo")
-            .args(["ip", "link", "set", &virt_iface, "up"])
+        let _ = Command::new("ip")
+            .args(["link", "set", &virt_iface, "up"])
             .output();
 
         tokio::time::sleep(Duration::from_millis(500)).await;
@@ -244,38 +312,33 @@ impl WiFiP2pReceiver {
         // 启动 wpa_supplicant 在虚拟接口上
         // 创建临时配置文件
         let conf_content = format!(
-            r#"ctrl_interface=/run/wpa_supplicant
+            r#"ctrl_interface=/tmp/wpa_{virt_iface}
 update_config=1
 
 network={{
-    ssid="{}"
-    psk="{}"
+    ssid="{ssid}"
+    psk="{psk}"
     key_mgmt=WPA-PSK
     scan_ssid=1
 }}
-"#,
-            ssid, psk
+"#
         );
 
         let conf_path = format!("/tmp/wpa_supplicant_{}.conf", virt_iface);
         std::fs::write(&conf_path, conf_content)?;
 
-        // 启动 wpa_supplicant
-        let _ = Command::new("sudo")
-            .args(["pkill", "-f", &format!("wpa_supplicant.*{}", virt_iface)])
+        // 创建控制接口目录
+        let ctrl_dir = format!("/tmp/wpa_{}", virt_iface);
+        let _ = std::fs::create_dir_all(&ctrl_dir);
+
+        // 停止可能存在的旧 wpa_supplicant
+        let _ = Command::new("pkill")
+            .args(["-f", &format!("wpa_supplicant.*{}", virt_iface)])
             .output();
 
-        let wpa_output = Command::new("sudo")
-            .args([
-                "wpa_supplicant",
-                "-B",
-                "-i",
-                &virt_iface,
-                "-c",
-                &conf_path,
-                "-D",
-                "nl80211",
-            ])
+        // 启动 wpa_supplicant（不需要 sudo，因为使用 /tmp 控制接口）
+        let wpa_output = Command::new("wpa_supplicant")
+            .args(["-B", "-i", &virt_iface, "-c", &conf_path, "-D", "nl80211"])
             .output()?;
 
         if !wpa_output.status.success() {
@@ -289,17 +352,21 @@ network={{
             tokio::time::sleep(Duration::from_secs(1)).await;
 
             let status = Command::new("wpa_cli")
-                .args(["-i", &virt_iface, "status"])
+                .args(["-p", &ctrl_dir, "-i", &virt_iface, "status"])
                 .output()?;
 
             let stdout = String::from_utf8_lossy(&status.stdout);
             if stdout.contains("wpa_state=COMPLETED") {
-                debug!("Virtual interface connected on attempt {}", i);
+                info!("Virtual interface connected on attempt {}", i);
 
                 // 请求 DHCP
-                let _ = Command::new("sudo")
-                    .args(["dhclient", "-v", &virt_iface])
-                    .output();
+                let dhcp_result = Command::new("dhclient").args(["-v", &virt_iface]).output();
+
+                if let Err(e) = dhcp_result {
+                    debug!("dhclient failed (may need privileges): {}", e);
+                    // 尝试使用 dhcpcd
+                    let _ = Command::new("dhcpcd").args([&virt_iface]).output();
+                }
 
                 tokio::time::sleep(Duration::from_secs(2)).await;
 
@@ -545,18 +612,20 @@ network={{
             info!("Removing virtual interface {}", iface);
 
             // 停止 wpa_supplicant
-            let _ = Command::new("sudo")
-                .args(["pkill", "-f", &format!("wpa_supplicant.*{}", iface)])
+            let _ = Command::new("pkill")
+                .args(["-f", &format!("wpa_supplicant.*{}", iface)])
                 .output();
 
             // 删除接口
-            let _ = Command::new("sudo")
-                .args(["iw", "dev", iface, "del"])
-                .output();
+            let _ = Command::new("iw").args(["dev", iface, "del"]).output();
 
             // 删除临时配置
             let conf_path = format!("/tmp/wpa_supplicant_{}.conf", iface);
             let _ = std::fs::remove_file(conf_path);
+
+            // 删除控制接口目录
+            let ctrl_dir = format!("/tmp/wpa_{}", iface);
+            let _ = std::fs::remove_dir_all(ctrl_dir);
         }
 
         self.active_interface = None;
@@ -624,12 +693,10 @@ impl Drop for WiFiP2pReceiver {
         if self.created_virtual_interface
             && let Some(iface) = &self.active_interface
         {
-            let _ = Command::new("sudo")
-                .args(["pkill", "-f", &format!("wpa_supplicant.*{}", iface)])
+            let _ = Command::new("pkill")
+                .args(["-f", &format!("wpa_supplicant.*{}", iface)])
                 .output();
-            let _ = Command::new("sudo")
-                .args(["iw", "dev", iface, "del"])
-                .output();
+            let _ = Command::new("iw").args(["dev", iface, "del"]).output();
         }
     }
 }

@@ -370,6 +370,7 @@ dependencies = [
  "futures-util",
  "hkdf",
  "hostname",
+ "libc",
  "log",
  "mime_guess",
  "native-tls",
