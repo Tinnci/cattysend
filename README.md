@@ -1,3 +1,73 @@
+[ [English](#english) | [中文](#chinese) ]
+
+<a name="chinese"></a>
+
+# cattysend
+
+`cattysend` 是一个基于 Rust 开发的高性能 **互传联盟 (Mutual Transfer Alliance, MTA)** 协议实现，专为 Linux 终端环境设计。它利用低功耗蓝牙 (BLE) 和 Wi-Fi Direct (P2P) 技术，实现了 Linux 桌面与移动设备（小米、OPPO、vivo 等）之间的无缝、高速文件发现与传输。
+
+## 渊源与致敬
+
+本项目深受 [CatShare](https://github.com/kmod-midori/CatShare) 的启发，后者是 MTA 协议的先驱性实现。`cattysend` 旨在延续这一技术谱系，通过提供原生的 Linux TUI 体验，针对无头服务器和开发者工作流进行了深度优化。
+
+底层协议是对互传联盟所用标准的逆向工程实现。虽然这不是官方实现，但它严格遵循了跨设备互操作性所需的加密和传输规范。
+
+## 实施状态
+
+项目目前处于活跃的 **开发中 (WIP)** 状态。核心引擎已可运行，完全稳定的二进制版本仍在准备中。
+
+### 功能矩阵
+
+| 模块 | 功能 | 状态 | 备注 |
+| :--- | :--- | :--- | :--- |
+| **发现** | BLE GATT 广播与服务发现 | ✅ 已完成 | 需 BlueZ 支持 |
+| **安全** | ECDH (P-256) 密钥交换 | ✅ 已完成 | 原生实现 |
+| **传输** | Wi-Fi Direct (P2P) | ✅ 已完成 | 通过 NetworkManager 管理 |
+| **界面** | CLI 前端 | 🚧 Alpha | 基础命令可用 |
+| **界面** | TUI 前端 | 🚧 Alpha | 交互逻辑完善中 |
+
+## 技术架构与限制说明
+
+### "无 Sudo" 哲学
+`cattysend` 的首要设计目标是维护系统完整性。与许多需要 `CAP_NET_ADMIN` 或 `sudo` 权限来操作原始套接字的 Linux 网络工具不同，`cattysend` 将所有网络操作通过 D-Bus 接口委托给 **NetworkManager (NM)** 守护进程处理。
+
+### 连接性权衡 (The Connectivity Trade-off)
+当前的 Linux 桌面基础设施对并发 Wi-Fi 操作构成了显著挑战。虽然现代无线硬件通常支持多种并发接口（例如：托管模式 + P2P客户端），但 NetworkManager 的策略引擎往往缺乏从内核解析 `NL80211_ATTR_INTERFACE_COMBINATIONS` 的逻辑。
+
+**当前限制：**
+当激活 P2P 连接时，`cattysend` 使用原生的 `nmcli` 后端。由于上游 NM 的实现细节，物理 Wi-Fi 接口可能会暂时挂起其基础设施连接，以优先保障 P2P 组的建立。我们选择了这种“抢占式”行为作为一种更安全、更稳健的替代方案，而非注入未托管的 `wpa_supplicant` 实例或要求不安全的 `sudoers` 配置。
+
+## 源码构建
+
+要构建 `cattysend`，你需要功能完备的 Rust 工具链以及 D-Bus 和 BlueZ 的开发头文件。
+
+### 依赖项
+- `libdbus-1-dev` (或同等库)
+- `libbluetooth-dev` (BlueZ)
+- `NetworkManager` (运行时)
+
+### 构建命令
+```bash
+cargo build --release
+```
+
+生成的二进制文件位于 `target/release/`：
+- `cattysend-core`: 核心库
+- `cattysend-tui`: 终端用户界面（推荐）
+- `cattysend-cli`: 命令行工具
+
+## 致谢
+
+深切感谢 **CatShare** 的开发者们对 MTA 协议的初步研究。本项目愿作为 Linux 终端社区的一个补充实现，与各位共勉。
+
+## 许可证
+
+本项目基于 MIT 许可证开源。详情请参阅 [LICENSE](LICENSE) 文件。
+
+---
+
+<a name="english"></a>
+
 # cattysend
 
 `cattysend` is a high-performance, Rust-based implementation of the **Mutual Transfer Alliance (MTA)** protocol, specifically designed for Linux terminal environments. It enables seamless, high-speed file discovery and transfer between Linux desktops and mobile devices (Xiaomi, OPPO, vivo, etc.) using Bluetooth Low Energy (BLE) and Wi-Fi Direct (P2P).
@@ -54,7 +124,7 @@ The resulting binaries will be located in `target/release/`:
 
 ## Acknowledgments
 
-Deep gratitude to the developers of **CatShare** for their initial research into the MTA protocol. This project serves as a complementary implementation for the Linux community.
+Deep gratitude to the developers of **CatShare** for their initial research into the MTA protocol. This project serves as a complementary implementation for the Linux terminal community.
 
 ## License
 
