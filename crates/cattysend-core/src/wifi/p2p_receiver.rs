@@ -168,7 +168,10 @@ impl WiFiP2pReceiver {
 
         tokio::time::sleep(Duration::from_secs(2)).await;
 
-        // 尝试连接
+        // 尝试创建连接
+        // 注意：这里不再强制绑定 ifname。
+        // 因为 NetworkManager 的 P2P 虚拟设备 (p2p-dev-wlan0) 目前不支持 WPA-PSK (密码) 连接。
+        // 不绑定 ifname 会让 NM 的物理网卡 (wlan0) 接管请求，虽然会导致断网，但能确保连接成功。
         let output = Command::new("nmcli")
             .args([
                 "connection",
