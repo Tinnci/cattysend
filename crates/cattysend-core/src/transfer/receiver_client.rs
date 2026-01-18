@@ -126,7 +126,14 @@ impl ReceiverClient {
 
                 "sendRequest" => {
                     if let Some(payload) = ws_msg.payload {
-                        let request: SendRequest = serde_json::from_value(payload.clone())?;
+                        debug!("sendRequest payload: {}", payload);
+                        let request: SendRequest = match serde_json::from_value(payload.clone()) {
+                            Ok(req) => req,
+                            Err(e) => {
+                                error!("Failed to parse sendRequest: {}. Payload: {}", e, payload);
+                                return Err(anyhow::anyhow!("Protocol error: {}", e));
+                            }
+                        };
                         total_size = request.total_size;
 
                         // 询问用户是否接受

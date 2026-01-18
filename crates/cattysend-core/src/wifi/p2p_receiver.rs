@@ -120,12 +120,43 @@ impl WiFiP2pReceiver {
             debug!("WiFi connection attempt {}/{}", attempt, max_retries);
 
             // 触发 WiFi 扫描
+            debug!("Triggering WiFi scan on interface {}", self.interface);
             let _ = Command::new("nmcli")
                 .args(["device", "wifi", "rescan", "ifname", &self.interface])
                 .output();
 
             // 等待扫描完成
             tokio::time::sleep(Duration::from_secs(2)).await;
+
+            // 列出可见的 WiFi 网络（用于调试）
+            if let Ok(list_output) = Command::new("nmcli")
+                .args([
+                    "-t",
+                    "-f",
+                    "SSID,SIGNAL",
+                    "device",
+                    "wifi",
+                    "list",
+                    "ifname",
+                    &self.interface,
+                ])
+                .output()
+            {
+                let networks = String::from_utf8_lossy(&list_output.stdout);
+                let network_count = networks.lines().count();
+                debug!("Visible WiFi networks ({} total):", network_count);
+
+                // 检查目标 SSID 是否在列表中
+                let target_found = networks.lines().any(|line| line.starts_with(ssid));
+                if target_found {
+                    debug!("  ✓ Target SSID '{}' found in scan results", ssid);
+                } else {
+                    debug!("  ✗ Target SSID '{}' NOT found. Available networks:", ssid);
+                    for line in networks.lines().take(10) {
+                        debug!("    - {}", line);
+                    }
+                }
+            }
 
             // 尝试连接
             let output = Command::new("nmcli")
