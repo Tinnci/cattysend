@@ -15,7 +15,7 @@
 pub mod p2p_receiver;
 pub mod p2p_sender;
 
-pub use p2p_receiver::WiFiP2pReceiver;
+pub use p2p_receiver::{P2pReceiverConfig, WiFiP2pReceiver};
 pub use p2p_sender::{P2pConfig, WiFiP2pSender};
 
 /// P2pInfo - 与 CatShare 的 P2pInfo 完全兼容

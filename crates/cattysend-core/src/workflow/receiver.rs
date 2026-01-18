@@ -117,16 +117,24 @@ impl Receiver {
 
         callback.on_status(&format!("连接到 WiFi: {}", p2p_info.ssid));
 
-        // 连接到 WiFi P2P 热点
-        let wifi_receiver = WiFiP2pReceiver::new(&self.options.wifi_interface);
+        // 连接到 WiFi P2P 热点（支持双连接）
+        let mut wifi_receiver = WiFiP2pReceiver::new(&self.options.wifi_interface);
         let local_ip = wifi_receiver.connect(&p2p_info).await?;
 
-        callback.on_status(&format!("已连接，本地 IP: {}", local_ip));
+        // 显示连接状态
+        if wifi_receiver.is_dual_connected() {
+            callback.on_status(&format!("✅ 已连接（双连接模式），本地 IP: {}", local_ip));
+        } else {
+            callback.on_status(&format!("✅ 已连接，本地 IP: {}", local_ip));
+        }
 
         // 计算发送端 IP (通常是网关)
         let sender_ip = self.get_gateway_ip(&local_ip);
 
-        callback.on_status(&format!("连接到发送端 {}:{}", sender_ip, p2p_info.port));
+        callback.on_status(&format!(
+            "连接到 WebSocket: wss://{}:{}/websocket",
+            sender_ip, p2p_info.port
+        ));
 
         // 创建接收适配器
         let adapter = ReceiverCallbackAdapter {
@@ -143,7 +151,7 @@ impl Receiver {
 
         let files = client.start(&adapter).await?;
 
-        // 断开 WiFi
+        // 断开 WiFi 并清理虚拟接口
         wifi_receiver.disconnect().await?;
 
         callback.on_complete(files.clone());
