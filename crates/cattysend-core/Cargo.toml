@@ -53,5 +53,4 @@ toml = "0.8"
 
 # D-Bus (NetworkManager integration)
 zbus = { version = "4", default-features = false, features = ["tokio"] }
-btmgmt = "0.2.5"
 

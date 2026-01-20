@@ -15,11 +15,10 @@
 //! - Service Data (0x01FF): 6 字节身份数据
 //! - Scan Response (0xFFFF): 27 字节，包含设备名称和协议版本
 
-use log::{debug, error, info, trace, warn};
+use log::{debug, error, info, trace};
 
 use crate::ble::{
     ADV_SERVICE_UUID, DeviceInfo, MAIN_SERVICE_UUID, P2P_CHAR_UUID, STATUS_CHAR_UUID,
-    mgmt_advertiser::{LegacyAdvConfig, MgmtLegacyAdvertiser},
 };
 use crate::config::{AppSettings, BrandId};
 use crate::crypto::BleSecurityPersistent;
@@ -246,86 +245,14 @@ impl GattServer {
         let _app_handle = adapter.serve_gatt_application(app).await?;
         debug!("GATT application registered successfully");
 
-        // 广播策略：
-        // 1. 尝试 MGMT API (Legacy 模式，需要 CAP_NET_ADMIN)
-        // 2. 如果失败，回退到 bluer (D-Bus，可能使用 Extended Advertising)
+        // 构造 Legacy BLE 广播
+        // 关键: secondary_channel: None 强制使用 Legacy Advertising PDUs
         let random_data = self.random_data;
-        let flag_5ghz: u8 = if self.supports_5ghz { 0x01 } else { 0x00 };
-        let brand = self.brand_id.id();
-        let ident_uuid_short = ((flag_5ghz as u16) << 8) | (brand as u16);
 
-        // 尝试 MGMT Legacy 广播
-        let adv_backend = match self
-            .try_mgmt_advertising(ident_uuid_short, random_data)
-            .await
-        {
-            Ok(mgmt_adv) => {
-                debug!("Using MGMT Legacy advertising (optimal compatibility)");
-                AdvertisingBackend::Mgmt(mgmt_adv)
-            }
-            Err(e) => {
-                warn!(
-                    "MGMT advertising failed ({}), falling back to bluer D-Bus",
-                    e
-                );
-                warn!("Note: This may use Extended Advertising which some devices don't support.");
-                warn!("For Legacy mode, run: sudo setcap 'cap_net_admin+eip' <binary>");
-
-                // 回退到 bluer
-                let adv_handle = self.start_bluer_advertising(&adapter, random_data).await?;
-                AdvertisingBackend::Bluer(adv_handle)
-            }
-        };
-
-        info!(
-            "GATT Server started, sender_id={}, device_name='{}'",
-            self.sender_id, self.device_name
-        );
-
-        Ok(GattServerHandle {
-            _adv_backend: adv_backend,
-            _app_handle,
-            _session: session,
-        })
-    }
-
-    /// 尝试使用 MGMT API 启动 Legacy 广播
-    async fn try_mgmt_advertising(
-        &self,
-        ident_uuid: u16,
-        random_data: [u8; 2],
-    ) -> anyhow::Result<MgmtLegacyAdvertiser> {
-        let adv_config = LegacyAdvConfig::catshare_compatible(
-            0x3331, // CatShare Service UUID
-            ident_uuid,
-            &[random_data[0], random_data[1], 0, 0, 0, 0],
-            &self.device_name,
-            random_data,
-        );
-
-        debug!(
-            "Trying MGMT Legacy advertising: service=0x3331, ident=0x{:04x}",
-            ident_uuid
-        );
-
-        let mut mgmt_adv = MgmtLegacyAdvertiser::new(adv_config).await?;
-        mgmt_adv.start().await?;
-        debug!("MGMT Legacy advertising started successfully");
-
-        Ok(mgmt_adv)
-    }
-
-    /// 使用 bluer D-Bus 启动广播（回退方案）
-    async fn start_bluer_advertising(
-        &self,
-        adapter: &bluer::Adapter,
-        random_data: [u8; 2],
-    ) -> anyhow::Result<bluer::adv::AdvertisementHandle> {
-        // 构造精简的广播数据（尽量保持在 31 字节内以触发 Legacy 模式）
         let mut service_uuids = BTreeSet::new();
         service_uuids.insert(ADV_SERVICE_UUID);
 
-        // 只放简短的身份数据，不放 27 字节的名称数据
+        // 构造身份数据
         let flag_5ghz: u8 = if self.supports_5ghz { 0x01 } else { 0x00 };
         let brand = self.brand_id.id();
         let capability_short = ((flag_5ghz as u16) << 8) | (brand as u16);
@@ -346,14 +273,29 @@ impl GattServer {
             service_data,
             local_name: Some(self.device_name.clone()),
             discoverable: Some(true),
+            // 关键: secondary_channel: None 强制 Legacy Advertising
+            // 不设置辅助信道 = 使用主信道 = Legacy PDUs
+            secondary_channel: None,
             ..Default::default()
         };
 
-        debug!("Starting bluer D-Bus advertising (fallback mode)");
+        debug!(
+            "Starting Legacy BLE advertisement: service={}, ident=0x{:04x}, name='{}'",
+            ADV_SERVICE_UUID, capability_short, self.device_name
+        );
         let adv_handle = adapter.advertise(adv).await?;
-        debug!("Bluer advertising started");
+        debug!("Legacy BLE advertisement started successfully");
 
-        Ok(adv_handle)
+        info!(
+            "GATT Server started, sender_id={}, device_name='{}'",
+            self.sender_id, self.device_name
+        );
+
+        Ok(GattServerHandle {
+            _adv_handle: adv_handle,
+            _app_handle,
+            _session: session,
+        })
     }
 }
 
@@ -400,18 +342,9 @@ fn process_p2p_write(
     })
 }
 
-/// 广播后端枚举
-#[allow(dead_code)]
-enum AdvertisingBackend {
-    /// MGMT API (Legacy 模式，推荐)
-    Mgmt(MgmtLegacyAdvertiser),
-    /// bluer D-Bus (回退，可能 Extended)
-    Bluer(bluer::adv::AdvertisementHandle),
-}
-
 /// GATT Server Handle - 保持服务运行
 pub struct GattServerHandle {
-    _adv_backend: AdvertisingBackend,
+    _adv_handle: bluer::adv::AdvertisementHandle,
     _app_handle: bluer::gatt::local::ApplicationHandle,
     _session: bluer::Session,
 }

@@ -20,7 +20,6 @@
 pub mod advertiser;
 pub mod client;
 pub mod gatt;
-pub mod mgmt_advertiser;
 pub mod scanner;
 pub mod server;
 
@@ -96,7 +95,6 @@ impl DeviceInfo {
 
 // Re-exports
 pub use client::BleClient;
-pub use mgmt_advertiser::{LegacyAdvConfig, MgmtLegacyAdvertiser};
 pub use scanner::{BleScanner, DiscoveredDevice, ScanCallback};
 pub use server::{GattServer, GattServerHandle, P2pReceiveEvent};
 
