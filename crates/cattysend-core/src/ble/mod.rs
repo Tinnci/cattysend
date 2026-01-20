@@ -25,13 +25,10 @@ pub mod server;
 
 use uuid::Uuid;
 
-/// 广播 Service UUID (用于设备发现/广播扫描)
+/// CatShare/MTA 使用 16-bit UUID: 0x3331
 ///
-/// CatShare/MTA 使用 16-bit UUID: 0x3331，但后缀与标准蓝牙基底不同
-/// CatShare 的 ADV_SERVICE_UUID: 00003331-0000-1000-8000-008123456789
-///
-/// 注意：这与标准蓝牙基底 UUID (00805f9b34fb) 不同！
-pub const ADV_SERVICE_UUID: Uuid = Uuid::from_u128(0x00003331_0000_1000_8000_008123456789);
+/// 使用标准蓝牙基底以确保广播时可以被压缩为 16-bit，减小包大小
+pub const ADV_SERVICE_UUID: Uuid = Uuid::from_u128(0x00003331_0000_1000_8000_00805f9b34fb);
 
 /// Service UUID (用于扫描时匹配，使用标准蓝牙基底)
 ///
@@ -109,10 +106,9 @@ mod tests {
     #[test]
     fn test_uuid_constants() {
         // 广播服务 UUID (CatShare ADV_SERVICE_UUID)
-        // 注意：后缀是 008123456789，与标准蓝牙基底不同
         assert_eq!(
             ADV_SERVICE_UUID.to_string(),
-            "00003331-0000-1000-8000-008123456789"
+            "00003331-0000-1000-8000-00805f9b34fb"
         );
 
         // 标准蓝牙基底版本的服务 UUID

@@ -276,7 +276,7 @@ impl GattServer {
         let brand = self.brand_id.id();
         let capability_short = ((flag_5ghz as u16) << 8) | (brand as u16);
         let ident_uuid = uuid::Uuid::from_u128(
-            ((capability_short as u128) << 96) | 0x0000_1000_8000_0081_2345_6789_u128,
+            ((capability_short as u128) << 96) | 0x0000_1000_8000_0080_5f9b_34fb_u128,
         );
         debug!(
             "Capability UUID: {} (5GHz={}, brand={})",

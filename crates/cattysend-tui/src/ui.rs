@@ -129,11 +129,57 @@ fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_main(frame: &mut Frame, app: &App, area: Rect) {
+    if app.mode == AppMode::Settings {
+        draw_settings(frame, app, area);
+        return;
+    }
+
     match app.tab {
         Tab::Devices => draw_devices_tab(frame, app, area),
         Tab::Transfer => draw_transfer_tab(frame, app, area),
         Tab::Log => draw_log_tab(frame, app, area),
     }
+}
+
+fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
+    let block = Block::default()
+        .title(" ⚙️ 设置 ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Yellow));
+
+    let inner_area = centered_rect(60, 30, area);
+
+    let content = vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("修改设备名称: ", Style::default().bold()),
+            Span::styled(
+                &app.input_buffer,
+                Style::default().fg(Color::Cyan).bg(Color::DarkGray),
+            ),
+            Span::styled("_", Style::default().fg(Color::White).bold()), // 光标模拟
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::raw("当前保存值: "),
+            Span::styled(&app.settings.device_name, Style::default().fg(Color::Gray)),
+        ]),
+        Line::from(""),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(" [Enter] ", Style::default().fg(Color::Green).bold()),
+            Span::raw("保存并返回   "),
+            Span::styled(" [Esc] ", Style::default().fg(Color::Red).bold()),
+            Span::raw("取消"),
+        ]),
+    ];
+
+    let paragraph = Paragraph::new(content)
+        .block(block)
+        .alignment(Alignment::Center)
+        .wrap(Wrap { trim: true });
+
+    frame.render_widget(paragraph, inner_area);
 }
 
 fn draw_devices_tab(frame: &mut Frame, app: &App, area: Rect) {
@@ -265,10 +311,11 @@ fn draw_status_bar(frame: &mut Frame, app: &App, area: Rect) {
         AppMode::Receiving => " 📥 接收模式 ",
         AppMode::Sending => " 📤 发送中 ",
         AppMode::Transferring => " 🔄 传输中 ",
+        AppMode::Settings => " ⚙️ 设置中 ",
     };
 
     let status = Paragraph::new(format!(
-        "{}│ 设备: {} │ [s]扫描 [r]接收 [Tab]切换 [q]退出",
+        "{}│ 设备: {} │ [s]扫描 [r]接收 [p]设置 [Tab]切换 [q]退出",
         mode_text,
         app.devices.len()
     ))

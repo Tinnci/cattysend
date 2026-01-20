@@ -17,6 +17,7 @@ pub enum AppMode {
     #[allow(dead_code)] // Planned for future file sending feature
     Sending,
     Transferring,
+    Settings,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -125,6 +126,8 @@ pub struct App {
 
     // 应用设置
     pub settings: AppSettings,
+    /// 用于编辑设置的临时缓冲区
+    pub input_buffer: String,
 }
 
 impl App {
@@ -152,6 +155,7 @@ impl App {
             has_net_raw,
             show_perm_warning: !has_nmcli || !has_net_raw,
             settings,
+            input_buffer: String::new(),
         };
 
         // 添加初始消息

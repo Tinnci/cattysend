@@ -124,39 +124,62 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> Result
                 continue;
             }
 
-            match key.code {
-                KeyCode::Char('q') | KeyCode::Esc => {
-                    return Ok(());
-                }
-                KeyCode::Char('s') => {
-                    app.start_scan();
-                }
-                KeyCode::Char('r') => {
-                    app.toggle_receive_mode();
-                }
-                KeyCode::Up | KeyCode::Char('k') => app.previous_device(),
-                KeyCode::Down | KeyCode::Char('j') => app.next_device(),
-                KeyCode::Enter => {
-                    // Check if we have a file to send and a valid device selected
-                    if let Some(file_path) = app.file_to_send.clone() {
-                        if let Some(device) = app.devices.get(app.selected_device).cloned() {
-                            app.run_sender(device.address.clone(), file_path);
-                        }
-                    } else {
-                        app.select_device();
+            match app.mode {
+                app::AppMode::Settings => match key.code {
+                    KeyCode::Esc => app.mode = app::AppMode::Idle,
+                    KeyCode::Enter => {
+                        app.settings.device_name = app.input_buffer.clone();
+                        let _ = app.settings.save();
+                        app.add_log(
+                            app::LogLevel::Info,
+                            format!("设备名称已更新为: {}", app.settings.device_name),
+                        );
+                        app.mode = app::AppMode::Idle;
                     }
-                }
-                KeyCode::Tab => app.next_tab(),
-                KeyCode::Char('1') => app.tab = app::Tab::Devices,
-                KeyCode::Char('2') => app.tab = app::Tab::Transfer,
-                KeyCode::Char('3') => app.tab = app::Tab::Log,
-                KeyCode::Char('d') => {
-                    app.toggle_log_level();
-                }
-                KeyCode::Char('c') => {
-                    app.clear_logs();
-                }
-                _ => {}
+                    KeyCode::Char(c) => app.input_buffer.push(c),
+                    KeyCode::Backspace => {
+                        app.input_buffer.pop();
+                    }
+                    _ => {}
+                },
+                _ => match key.code {
+                    KeyCode::Char('q') | KeyCode::Esc => {
+                        return Ok(());
+                    }
+                    KeyCode::Char('s') => {
+                        app.start_scan();
+                    }
+                    KeyCode::Char('r') => {
+                        app.toggle_receive_mode();
+                    }
+                    KeyCode::Char('p') => {
+                        app.input_buffer = app.settings.device_name.clone();
+                        app.mode = app::AppMode::Settings;
+                    }
+                    KeyCode::Up | KeyCode::Char('k') => app.previous_device(),
+                    KeyCode::Down | KeyCode::Char('j') => app.next_device(),
+                    KeyCode::Enter => {
+                        // Check if we have a file to send and a valid device selected
+                        if let Some(file_path) = app.file_to_send.clone() {
+                            if let Some(device) = app.devices.get(app.selected_device).cloned() {
+                                app.run_sender(device.address.clone(), file_path);
+                            }
+                        } else {
+                            app.select_device();
+                        }
+                    }
+                    KeyCode::Tab => app.next_tab(),
+                    KeyCode::Char('1') => app.tab = app::Tab::Devices,
+                    KeyCode::Char('2') => app.tab = app::Tab::Transfer,
+                    KeyCode::Char('3') => app.tab = app::Tab::Log,
+                    KeyCode::Char('d') => {
+                        app.toggle_log_level();
+                    }
+                    KeyCode::Char('c') => {
+                        app.clear_logs();
+                    }
+                    _ => {}
+                },
             }
         }
 
