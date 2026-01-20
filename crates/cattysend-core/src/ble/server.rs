@@ -34,10 +34,9 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
 
-/// 广播数据中的随机 ID（用于 sender ID）
-fn generate_sender_id() -> String {
-    let random_bytes: [u8; 2] = rand::random();
-    format!("{:02x}{:02x}", random_bytes[0], random_bytes[1])
+/// 从随机数据生成 sender ID
+fn sender_id_from_random_data(random_data: &[u8; 2]) -> String {
+    format!("{:02x}{:02x}", random_data[0], random_data[1])
 }
 
 /// P2P 信息接收事件
@@ -76,6 +75,8 @@ pub struct GattServer {
     state: Arc<Mutex<GattServerState>>,
     p2p_tx: mpsc::Sender<P2pReceiveEvent>,
     p2p_rx: Option<mpsc::Receiver<P2pReceiveEvent>>,
+    /// 随机数据 (2 bytes)，用于 sender ID 和广播身份
+    random_data: [u8; 2],
     sender_id: String,
     device_name: String,
     security: Option<Arc<BleSecurityPersistent>>,
@@ -91,12 +92,15 @@ impl GattServer {
         let state = GattServerState::new(mac_address, public_key)?;
 
         let (p2p_tx, p2p_rx) = mpsc::channel(16);
-        let sender_id = generate_sender_id();
+        // 生成随机数据 (2 bytes)，在整个 GATT Server 生命周期内保持不变
+        let random_data: [u8; 2] = rand::random();
+        let sender_id = sender_id_from_random_data(&random_data);
 
         Ok(Self {
             state: Arc::new(Mutex::new(state)),
             p2p_tx,
             p2p_rx: Some(p2p_rx),
+            random_data,
             sender_id,
             device_name,
             security: None,
@@ -212,37 +216,69 @@ impl GattServer {
 
         // 构造 CatShare 兼容的广播数据
         //
-        // 注意: BlueZ 的 Advertisement 接口无法精确控制广播包和扫描响应的分布
-        // 我们需要确保总数据量在 31 字节以内，否则可能导致 ADV_SERVICE_UUID 被挤出主包
+        // CatShare 广播数据结构:
         //
-        // 广播包结构 (最大 31 字节):
-        // - Flags (3 bytes): 自动添加
-        // - Complete 128-bit Service UUIDs (18 bytes): 2 + 16 = 18
-        // - Service Data (最多 10 bytes 剩余空间)
+        // 主广播包 (advData):
+        // 1. ADV_SERVICE_UUID: 00003331-0000-1000-8000-008123456789
+        // 2. Service Data (000001ff-0000-1000-8000-00805f9b34fb): 6 bytes
+        //    - RANDOM_DATA[0:6] 用于身份识别
+        //
+        // 扫描响应包 (scanRespData):
+        // 1. Service Data (0000ffff-0000-1000-8000-00805f9b34fb): 27 bytes
+        //    - [0-7]: 8 bytes 保留 (全 0)
+        //    - [8-9]: 2 bytes RANDOM_DATA (sender ID)
+        //    - [10-25]: 最多 16 bytes 设备名称 (UTF-8, 超过 15 字节截断并加 \t)
+        //    - [26]: 1 byte 协议版本 (= 1)
 
-        // 1. 基础服务 UUID - 使用 ADV_SERVICE_UUID (008123456789 后缀)
+        // 1. 服务 UUID
         let mut service_uuids = BTreeSet::new();
         service_uuids.insert(ADV_SERVICE_UUID);
 
-        // 2. 身份/能力 UUID (0x01FF = 5GHz + Linux)
-        // 使用 16-bit UUID 可以节省空间: 0x01FF
-        // 但 BlueZ 只支持 128-bit UUID，所以我们需要用完整格式
+        // 2. 使用存储的随机数据
+        let random_data = self.random_data;
+
+        // 3. 身份 service data (000001ff, 6 bytes)
         let ident_uuid = uuid::Uuid::from_u128(0x000001ff_0000_1000_8000_00805f9b34fb);
-        let mut service_data = std::collections::BTreeMap::new();
+        let mut ident_payload = vec![0u8; 6];
+        ident_payload[0] = random_data[0];
+        ident_payload[1] = random_data[1];
+        // 剩余 4 字节为 0
 
-        // 提供 2 字节识别数据 (与 CatShare RANDOM_DATA 对齐)
-        // CatShare 的 RANDOM_DATA 实际上只有 2 字节
-        let mut ident_payload = vec![0u8; 2];
-        if let Ok(id_val) = u16::from_str_radix(&self.sender_id, 16) {
-            let id_bytes = id_val.to_be_bytes();
-            ident_payload[0] = id_bytes[0];
-            ident_payload[1] = id_bytes[1];
+        // 4. 设备名称 service data (0000ffff, 27 bytes)
+        let name_uuid = uuid::Uuid::from_u128(0x0000ffff_0000_1000_8000_00805f9b34fb);
+        let mut name_payload = vec![0u8; 27];
+        // [0-7]: 保留 (全 0)
+        // [8-9]: sender ID
+        name_payload[8] = random_data[0];
+        name_payload[9] = random_data[1];
+        // [10-25]: 设备名称
+        let name_bytes = self.device_name.as_bytes();
+        if name_bytes.len() <= 15 {
+            // 名称不超过 15 字节，直接复制
+            let copy_len = std::cmp::min(name_bytes.len(), 16);
+            name_payload[10..10 + copy_len].copy_from_slice(&name_bytes[..copy_len]);
+        } else {
+            // 名称超过 15 字节，截断并加 \t 作为标记
+            // 类似 CatShare 的处理
+            let mut truncated = String::from_utf8_lossy(&name_bytes[..15]).to_string();
+            // 回扫确保截断在 UTF-8 字符边界
+            while !truncated.is_empty() && !self.device_name.starts_with(&truncated) {
+                truncated.pop();
+            }
+            truncated.push('\t');
+            let truncated_bytes = truncated.as_bytes();
+            let copy_len = std::cmp::min(truncated_bytes.len(), 16);
+            name_payload[10..10 + copy_len].copy_from_slice(&truncated_bytes[..copy_len]);
         }
-        service_data.insert(ident_uuid, ident_payload);
+        // [26]: 协议版本 = 1
+        name_payload[26] = 1;
 
-        // 注意: 我们不再在广播中放入 0xFFFF 的 27 字节数据
-        // 因为这会导致总数据超过 31 字节，BlueZ 可能会丢弃关键的 ADV_SERVICE_UUID
-        // 设备名称通过 local_name 传递
+        let mut service_data = std::collections::BTreeMap::new();
+        service_data.insert(ident_uuid, ident_payload);
+        service_data.insert(name_uuid, name_payload);
+
+        // 注意: BlueZ 的 Advertisement 接口会自动将数据分布到广播包和扫描响应包
+        // local_name 仍然设置，作为备用显示
 
         let adv = Advertisement {
             advertisement_type: bluer::adv::Type::Peripheral,
