@@ -268,31 +268,31 @@ impl GattServer {
         // 2. 使用存储的随机数据
         let random_data = self.random_data;
 
-        // 3. 能力/身份 service data
-        // UUID 格式: 0000XXYY-0000-1000-8000-00805f9b34fb
-        // - XX = 5GHz 标志 (0x01 = 支持, 0x00 = 不支持)
-        // - YY = 厂商 ID
+        // 3. 构造 16-bit UUIDs (使用标准基底以确保压缩)
+        // [A] 主服务 & 身份识别 UUID (0x3331)
+        let main_uuid = ADV_SERVICE_UUID;
+
+        // [B] 能力/厂商 UUID (0x01XX - XX是厂商ID, 01表示5GHz支持, 00表示不支持)
         let flag_5ghz: u8 = if self.supports_5ghz { 0x01 } else { 0x00 };
         let brand = self.brand_id.id();
         let capability_short = ((flag_5ghz as u16) << 8) | (brand as u16);
         let ident_uuid = uuid::Uuid::from_u128(
             ((capability_short as u128) << 96) | 0x0000_1000_8000_0080_5f9b_34fb_u128,
         );
-        debug!(
-            "Capability UUID: {} (5GHz={}, brand={})",
-            ident_uuid,
-            self.supports_5ghz,
-            self.brand_id.name()
-        );
 
-        // Service data: 6 bytes (RANDOM_DATA 用于身份识别)
-        let mut ident_payload = vec![0u8; 6];
-        ident_payload[0] = random_data[0];
-        ident_payload[1] = random_data[1];
-        // 剩余 4 字节为 0
+        // [C] 设备名 UUID (0xffff)
+        let name_uuid = uuid::Uuid::from_u128(0x0000_ffff_0000_1000_8000_0080_5f9b_34fb_u128);
 
-        // 4. 设备名称 service data (0000ffff, 27 bytes)
-        let name_uuid = uuid::Uuid::from_u128(0x0000ffff_0000_1000_8000_00805f9b34fb);
+        // 4. 准备 Service Data 负载
+        // 身份识别负载 (6 bytes)
+        let mut main_payload = vec![0u8; 6];
+        main_payload[0] = random_data[0];
+        main_payload[1] = random_data[1];
+
+        // 能力负载 (6 bytes, 全 0，因为数据已编码在 UUID 中)
+        let ident_payload = vec![0u8; 6];
+
+        // 5. 设备名称负载 (27 bytes)
         let mut name_payload = vec![0u8; 27];
         // [0-7]: 保留 (全 0)
         // [8-9]: sender ID
@@ -321,15 +321,15 @@ impl GattServer {
         name_payload[26] = 1;
 
         let mut service_data = std::collections::BTreeMap::new();
+        // 如果是 CatShare 协议，必须包含 0x3331 的 Service Data，否则扫描不到
+        service_data.insert(main_uuid, main_payload);
         service_data.insert(ident_uuid, ident_payload);
         service_data.insert(name_uuid, name_payload);
 
-        // 注意: BlueZ 的 Advertisement 接口会自动将数据分布到广播包和扫描响应包
-        // local_name 仍然设置，作为备用显示
-
         let adv = Advertisement {
             advertisement_type: bluer::adv::Type::Peripheral,
-            service_uuids: service_uuids.clone(),
+            // 明确包含 Service UUID
+            service_uuids: BTreeSet::from([main_uuid]),
             service_data,
             local_name: None,
             discoverable: Some(true),
@@ -337,8 +337,8 @@ impl GattServer {
         };
 
         debug!(
-            "Starting BLE advertisement: service_uuid={}, identity_uuid={}, local_name={}",
-            ADV_SERVICE_UUID, ident_uuid, self.device_name
+            "Starting BLE advertisement (Legacy Compatible): main={}, ident={}, name={}",
+            main_uuid, ident_uuid, name_uuid
         );
         let adv_handle = adapter.advertise(adv).await?;
         debug!("BLE advertisement started successfully");
@@ -346,10 +346,6 @@ impl GattServer {
         info!(
             "GATT Server started, sender_id={}, device_name='{}'",
             self.sender_id, self.device_name
-        );
-        debug!(
-            "Advertising with service_uuid={}, identity_uuid={}",
-            ADV_SERVICE_UUID, ident_uuid
         );
 
         Ok(GattServerHandle {
