@@ -595,6 +595,7 @@ dependencies = [
  "tokio-stream",
  "tokio-tungstenite",
  "tokio-util",
+ "toml",
  "uuid",
  "zbus",
  "zip",

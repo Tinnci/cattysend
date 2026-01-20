@@ -1,8 +1,8 @@
 //! Application state
 
 use cattysend_core::{
-    BleScanner, DiscoveredDevice, ReceiveEvent, ReceiveOptions, Receiver, ScanCallback,
-    SendOptions, Sender, SimpleReceiveCallback, SimpleSendCallback,
+    AppSettings, BleScanner, DiscoveredDevice, ReceiveEvent, ReceiveOptions, Receiver,
+    ScanCallback, SendOptions, Sender, SimpleReceiveCallback, SimpleSendCallback,
 };
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -122,12 +122,17 @@ pub struct App {
     pub has_nmcli: bool,
     pub has_net_raw: bool,
     pub show_perm_warning: bool,
+
+    // 应用设置
+    pub settings: AppSettings,
 }
 
 impl App {
     pub fn new() -> Self {
         let (event_tx, event_rx) = mpsc::channel(100);
         let (has_nmcli, has_net_raw) = cattysend_core::wifi::check_capabilities();
+
+        let settings = AppSettings::load();
 
         let mut app = Self {
             mode: AppMode::Idle,
@@ -146,10 +151,20 @@ impl App {
             has_nmcli,
             has_net_raw,
             show_perm_warning: !has_nmcli || !has_net_raw,
+            settings,
         };
 
         // 添加初始消息
         app.add_log(LogLevel::Info, "Cattysend TUI 启动".to_string());
+        app.add_log(
+            LogLevel::Info,
+            format!(
+                "配置已加载: 设备名='{}', 厂商='{}', 5GHz={}",
+                app.settings.device_name,
+                app.settings.brand_id.name(),
+                app.settings.supports_5ghz
+            ),
+        );
 
         if app.show_perm_warning {
             if !app.has_nmcli {

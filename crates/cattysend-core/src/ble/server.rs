@@ -20,6 +20,7 @@ use log::{debug, error, info, trace};
 use crate::ble::{
     ADV_SERVICE_UUID, DeviceInfo, MAIN_SERVICE_UUID, P2P_CHAR_UUID, STATUS_CHAR_UUID,
 };
+use crate::config::{AppSettings, BrandId};
 use crate::crypto::BleSecurityPersistent;
 use crate::wifi::P2pInfo;
 use bluer::{
@@ -80,6 +81,10 @@ pub struct GattServer {
     sender_id: String,
     device_name: String,
     security: Option<Arc<BleSecurityPersistent>>,
+    /// 厂商 ID
+    brand_id: BrandId,
+    /// 是否支持 5GHz
+    supports_5ghz: bool,
 }
 
 impl GattServer {
@@ -104,12 +109,38 @@ impl GattServer {
             sender_id,
             device_name,
             security: None,
+            brand_id: BrandId::Linux,
+            supports_5ghz: true,
         })
+    }
+
+    /// 从 AppSettings 创建 GattServer
+    pub fn from_settings(
+        mac_address: String,
+        public_key: String,
+        settings: &AppSettings,
+    ) -> anyhow::Result<Self> {
+        let mut server = Self::new(mac_address, settings.device_name.clone(), public_key)?;
+        server.brand_id = settings.brand_id;
+        server.supports_5ghz = settings.supports_5ghz;
+        Ok(server)
     }
 
     /// 设置安全上下文，用于自动解密 P2P 信息
     pub fn with_security(mut self, security: Arc<BleSecurityPersistent>) -> Self {
         self.security = Some(security);
+        self
+    }
+
+    /// 设置厂商 ID
+    pub fn with_brand(mut self, brand_id: BrandId) -> Self {
+        self.brand_id = brand_id;
+        self
+    }
+
+    /// 设置 5GHz 支持
+    pub fn with_5ghz_support(mut self, supports_5ghz: bool) -> Self {
+        self.supports_5ghz = supports_5ghz;
         self
     }
 
@@ -237,8 +268,24 @@ impl GattServer {
         // 2. 使用存储的随机数据
         let random_data = self.random_data;
 
-        // 3. 身份 service data (000001ff, 6 bytes)
-        let ident_uuid = uuid::Uuid::from_u128(0x000001ff_0000_1000_8000_00805f9b34fb);
+        // 3. 能力/身份 service data
+        // UUID 格式: 0000XXYY-0000-1000-8000-00805f9b34fb
+        // - XX = 5GHz 标志 (0x01 = 支持, 0x00 = 不支持)
+        // - YY = 厂商 ID
+        let flag_5ghz: u8 = if self.supports_5ghz { 0x01 } else { 0x00 };
+        let brand = self.brand_id.id();
+        let capability_short = ((flag_5ghz as u16) << 8) | (brand as u16);
+        let ident_uuid = uuid::Uuid::from_u128(
+            ((capability_short as u128) << 96) | 0x0000_1000_8000_0080_5f9b_34fb_u128,
+        );
+        debug!(
+            "Capability UUID: {} (5GHz={}, brand={})",
+            ident_uuid,
+            self.supports_5ghz,
+            self.brand_id.name()
+        );
+
+        // Service data: 6 bytes (RANDOM_DATA 用于身份识别)
         let mut ident_payload = vec![0u8; 6];
         ident_payload[0] = random_data[0];
         ident_payload[1] = random_data[1];

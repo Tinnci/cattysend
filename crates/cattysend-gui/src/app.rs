@@ -4,10 +4,10 @@ use dioxus::prelude::*;
 use std::path::PathBuf;
 
 use crate::components::{DeviceList, Header, ModeSelector, TransferPanel};
-use crate::state::{AppMode, AppSettings, DiscoveredDeviceInfo, TransferStatus};
+use crate::state::{AppMode, DiscoveredDeviceInfo, TransferStatus};
 use crate::styles::GLOBAL_CSS;
 
-use cattysend_core::{ReceiveEvent, ReceiveOptions, Receiver, SimpleReceiveCallback};
+use cattysend_core::{AppSettings, ReceiveEvent, ReceiveOptions, Receiver, SimpleReceiveCallback};
 
 /// 接收状态
 #[derive(Debug, Clone, PartialEq)]
@@ -30,7 +30,7 @@ pub fn App() -> Element {
     let mut devices = use_signal(Vec::<DiscoveredDeviceInfo>::new);
     let mut selected_device = use_signal(|| Option::<String>::None);
     let mut selected_files = use_signal(Vec::<PathBuf>::new);
-    let settings = use_signal(AppSettings::default);
+    let settings = use_signal(AppSettings::load);
 
     // 接收状态
     let mut receive_state = use_signal(|| ReceiveState::Idle);
@@ -42,13 +42,25 @@ pub fn App() -> Element {
 
         // 当切换到接收模式时启动接收
         if new_mode == AppMode::Receiving {
-            let device_name = settings.read().device_name.clone();
+            let current_settings = settings.read().clone();
+            let device_name = current_settings.device_name.clone();
+
             receive_state.set(ReceiveState::Starting);
             receive_logs.set(vec!["正在启动接收模式...".to_string()]);
+            receive_logs.with_mut(|logs| {
+                logs.push(format!(
+                    "配置已加载: 设备名='{}', 厂商='{}', 5GHz={}",
+                    device_name,
+                    current_settings.brand_id.name(),
+                    current_settings.supports_5ghz
+                ));
+            });
 
             spawn(async move {
                 let options = ReceiveOptions {
                     device_name: device_name.clone(),
+                    brand_id: current_settings.brand_id,
+                    supports_5ghz: current_settings.supports_5ghz,
                     ..Default::default()
                 };
 

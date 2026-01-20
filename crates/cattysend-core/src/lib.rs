@@ -53,10 +53,14 @@
 //! ```
 
 pub mod ble;
+pub mod config;
 pub mod crypto;
 pub mod transfer;
 pub mod wifi;
 pub mod workflow;
+
+// Config re-exports
+pub use config::{AppSettings, BrandId};
 
 // BLE re-exports
 pub use ble::{

@@ -47,6 +47,10 @@ pub struct ReceiveOptions {
     pub output_dir: PathBuf,
     /// 是否自动接受
     pub auto_accept: bool,
+    /// 厂商 ID
+    pub brand_id: crate::config::BrandId,
+    /// 是否支持 5GHz
+    pub supports_5ghz: bool,
 }
 
 impl Default for ReceiveOptions {
@@ -58,6 +62,8 @@ impl Default for ReceiveOptions {
             wifi_interface: "wlan0".to_string(),
             output_dir: dirs::download_dir().unwrap_or_else(|| PathBuf::from(".")),
             auto_accept: false,
+            brand_id: crate::config::BrandId::Linux,
+            supports_5ghz: true,
         }
     }
 }
@@ -90,7 +96,9 @@ impl Receiver {
             self.options.device_name.clone(),
             self.security.get_public_key().to_string(),
         )?
-        .with_security(self.security.clone());
+        .with_security(self.security.clone())
+        .with_brand(self.options.brand_id)
+        .with_5ghz_support(self.options.supports_5ghz);
         let mut p2p_rx = gatt_server.take_p2p_receiver().unwrap();
 
         let _handle = gatt_server.start().await?;

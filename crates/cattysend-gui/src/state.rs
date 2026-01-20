@@ -71,31 +71,3 @@ impl TransferStatus {
         )
     }
 }
-
-/// 应用设置
-#[derive(Debug, Clone)]
-pub struct AppSettings {
-    pub device_name: String,
-    #[allow(dead_code)]
-    pub wifi_interface: String,
-    #[allow(dead_code)]
-    pub download_dir: PathBuf,
-    #[allow(dead_code)]
-    pub auto_accept: bool,
-    #[allow(dead_code)]
-    pub dark_mode: bool,
-}
-
-impl Default for AppSettings {
-    fn default() -> Self {
-        Self {
-            device_name: hostname::get()
-                .map(|h| h.to_string_lossy().to_string())
-                .unwrap_or_else(|_| "Cattysend".to_string()),
-            wifi_interface: "wlan0".to_string(),
-            download_dir: dirs::download_dir().unwrap_or_else(|| PathBuf::from(".")),
-            auto_accept: false,
-            dark_mode: true,
-        }
-    }
-}
