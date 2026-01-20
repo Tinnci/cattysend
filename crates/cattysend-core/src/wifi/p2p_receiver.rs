@@ -4,21 +4,23 @@
 //!
 //! # 连接策略（优先级从高到低）
 //!
-//! 1. **nmcli wifi-p2p** (推荐): 使用 NetworkManager 原生 P2P 支持，
-//!    不需要 sudo，不会断开现有 WiFi。
-//! 2. **普通 WiFi 连接**: 如果 P2P 不可用，退回到普通连接模式，
-//!    会临时断开现有 WiFi。
+//! 1. **NmClient D-Bus**: 使用 NetworkManager 原生 D-Bus 接口
+//! 2. **普通 WiFi 连接**: 退回到简单命令行（仅作为备用）
 //!
 //! # 注意事项
 //!
 //! - 连接后自动获取 DHCP 分配的 IP 地址
 //! - 断开时会清理相关网络配置
 
+use std::process::Command;
+use std::sync::Arc;
+use std::time::Duration;
+
 use log::{debug, info, warn};
+use tokio::sync::Mutex;
 
 use crate::wifi::P2pInfo;
-use std::process::Command;
-use std::time::Duration;
+use crate::wifi::nm_dbus::NmClient;
 
 /// WiFi P2P 接收端配置
 #[derive(Debug, Clone)]
@@ -41,15 +43,19 @@ impl Default for P2pReceiverConfig {
     }
 }
 
+/// 活动连接状态
+struct ActiveConnection {
+    connection_name: String,
+    #[allow(dead_code)]
+    connection_path: Option<String>,
+    used_p2p_mode: bool,
+}
+
 /// WiFi P2P 接收端
 pub struct WiFiP2pReceiver {
     config: P2pReceiverConfig,
-    /// 实际使用的接口名
-    active_interface: Option<String>,
-    /// NetworkManager 连接名（用于断开时清理）
-    nm_connection_name: Option<String>,
-    /// 是否使用了 P2P 模式（true = 双连接成功）
-    used_p2p_mode: bool,
+    nm_client: Arc<Mutex<Option<NmClient>>>,
+    active_connection: Arc<Mutex<Option<ActiveConnection>>>,
 }
 
 impl WiFiP2pReceiver {
@@ -59,19 +65,35 @@ impl WiFiP2pReceiver {
                 main_interface: interface.to_string(),
                 ..Default::default()
             },
-            active_interface: None,
-            nm_connection_name: None,
-            used_p2p_mode: false,
+            nm_client: Arc::new(Mutex::new(None)),
+            active_connection: Arc::new(Mutex::new(None)),
         }
     }
 
     pub fn with_config(config: P2pReceiverConfig) -> Self {
         Self {
             config,
-            active_interface: None,
-            nm_connection_name: None,
-            used_p2p_mode: false,
+            nm_client: Arc::new(Mutex::new(None)),
+            active_connection: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// 初始化 NM 客户端
+    async fn ensure_nm_client(&self) -> anyhow::Result<()> {
+        let mut client = self.nm_client.lock().await;
+        if client.is_none() {
+            match NmClient::new().await {
+                Ok(c) => {
+                    info!("NetworkManager D-Bus client initialized");
+                    *client = Some(c);
+                }
+                Err(e) => {
+                    warn!("Failed to initialize NM client: {}", e);
+                    return Err(e);
+                }
+            }
+        }
+        Ok(())
     }
 
     /// 连接到 P2P 热点
@@ -83,245 +105,151 @@ impl WiFiP2pReceiver {
             info.ssid, self.config.preserve_wifi
         );
 
-        // 策略1: 尝试使用 nmcli P2P 模式（不需要 sudo，不会断开现有 WiFi）
-        if self.config.preserve_wifi {
-            if let Some(p2p_dev) = self.find_p2p_device() {
-                info!("Found P2P device: {}, attempting dual connection", p2p_dev);
-
-                match self
-                    .connect_nmcli_p2p(&p2p_dev, &info.ssid, &info.psk)
-                    .await
-                {
-                    Ok(ip) => {
-                        self.used_p2p_mode = true;
-                        return Ok(ip);
-                    }
-                    Err(e) => {
-                        warn!("P2P connection failed: {}, falling back to normal WiFi", e);
-                    }
-                }
-            } else {
-                debug!("No P2P device found, using normal WiFi connection");
+        // 尝试使用 NmClient D-Bus
+        match self.connect_nm_dbus(info).await {
+            Ok(ip) => {
+                info!("Connected via NetworkManager D-Bus, IP: {}", ip);
+                return Ok(ip);
+            }
+            Err(e) => {
+                warn!("NM D-Bus connection failed: {}, trying fallback", e);
             }
         }
 
-        // 策略2: 普通 WiFi 连接（会断开现有 WiFi）
-        info!(
-            "Using main interface '{}' (original WiFi will disconnect)",
-            self.config.main_interface
+        // 退回到简单的 nmcli 命令
+        self.connect_nmcli_fallback(info).await
+    }
+
+    /// 使用 NmClient D-Bus 连接
+    async fn connect_nm_dbus(&self, info: &P2pInfo) -> anyhow::Result<String> {
+        self.ensure_nm_client().await?;
+
+        let client_guard = self.nm_client.lock().await;
+        let client = client_guard
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("NM client not initialized"))?;
+
+        let conn_name = format!(
+            "cattysend-wifi-{}",
+            &info.ssid[..std::cmp::min(8, info.ssid.len())]
         );
-        self.active_interface = Some(self.config.main_interface.clone());
 
-        self.connect_nmcli_wifi(&self.config.main_interface.clone(), &info.ssid, &info.psk)
-            .await
-    }
+        // 删除可能存在的旧连接
+        let _ = client.delete_connection_by_name(&conn_name).await;
 
-    /// 查找 P2P 设备接口（如 p2p-dev-wlan0）
-    fn find_p2p_device(&self) -> Option<String> {
-        // 使用 nmcli 查找 wifi-p2p 类型的设备
-        if let Ok(output) = Command::new("nmcli")
-            .args(["-t", "-f", "DEVICE,TYPE", "device"])
-            .output()
+        // 触发 WiFi 扫描
+        if let Some(device) = client
+            .find_wifi_device(Some(&self.config.main_interface))
+            .await?
         {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            for line in stdout.lines() {
-                let parts: Vec<&str> = line.split(':').collect();
-                if parts.len() >= 2 && parts[1] == "wifi-p2p" {
-                    return Some(parts[0].to_string());
-                }
-            }
+            let _ = client.request_wifi_scan(&device).await;
+            tokio::time::sleep(Duration::from_secs(2)).await;
         }
 
-        // 回退: 尝试标准命名
-        let default_p2p = format!("p2p-dev-{}", self.config.main_interface);
-        if let Ok(output) = Command::new("nmcli")
-            .args(["device", "show", &default_p2p])
-            .output()
-            && output.status.success()
-        {
-            return Some(default_p2p);
-        }
+        // 创建连接
+        let conn_path = client
+            .create_wifi_connection(&info.ssid, &info.psk, Some(&self.config.main_interface))
+            .await?;
 
-        None
+        // 查找设备
+        let device = client
+            .find_wifi_device(Some(&self.config.main_interface))
+            .await?
+            .ok_or_else(|| {
+                anyhow::anyhow!("WiFi device {} not found", self.config.main_interface)
+            })?;
+
+        let active_conn = client
+            .activate_connection(&conn_path.as_ref(), &device)
+            .await?;
+
+        // 等待 IP 分配
+        let ip = client
+            .wait_for_ip(&active_conn.as_ref(), Duration::from_secs(20))
+            .await?;
+
+        // 记录活动连接
+        let mut active = self.active_connection.lock().await;
+        *active = Some(ActiveConnection {
+            connection_name: conn_name,
+            connection_path: Some(conn_path.to_string()),
+            used_p2p_mode: false,
+        });
+
+        Ok(ip)
     }
 
-    /// 使用 nmcli wifi-p2p 连接（不需要 sudo，保持现有 WiFi）
-    async fn connect_nmcli_p2p(
-        &mut self,
-        p2p_device: &str,
-        ssid: &str,
-        psk: &str,
-    ) -> anyhow::Result<String> {
-        debug!("Connecting via nmcli wifi-p2p on device {}", p2p_device);
+    /// 使用 nmcli 命令行连接（备用）
+    async fn connect_nmcli_fallback(&self, info: &P2pInfo) -> anyhow::Result<String> {
+        debug!("Connecting via nmcli fallback");
 
-        let conn_name = format!("cattysend-p2p-{}", &ssid[..std::cmp::min(8, ssid.len())]);
-
-        // 先删除可能存在的旧连接
+        // 触发扫描
         let _ = Command::new("nmcli")
-            .args(["connection", "delete", &conn_name])
-            .output();
-
-        // 先扫描
-        let _ = Command::new("nmcli")
-            .args(["device", "wifi", "rescan"])
+            .args([
+                "device",
+                "wifi",
+                "rescan",
+                "ifname",
+                &self.config.main_interface,
+            ])
             .output();
 
         tokio::time::sleep(Duration::from_secs(2)).await;
 
-        // 尝试创建连接
-        // 注意：这里不再强制绑定 ifname。
-        // 因为 NetworkManager 的 P2P 虚拟设备 (p2p-dev-wlan0) 目前不支持 WPA-PSK (密码) 连接。
-        // 不绑定 ifname 会让 NM 的物理网卡 (wlan0) 接管请求，虽然会导致断网，但能确保连接成功。
+        // 尝试连接
         let output = Command::new("nmcli")
             .args([
-                "connection",
-                "add",
-                "type",
+                "device",
                 "wifi",
-                "con-name",
-                &conn_name,
-                "ssid",
-                ssid,
-                "wifi-sec.key-mgmt",
-                "wpa-psk",
-                "wifi-sec.psk",
-                psk,
-                "connection.autoconnect",
-                "no",
+                "connect",
+                &info.ssid,
+                "password",
+                &info.psk,
+                "ifname",
+                &self.config.main_interface,
             ])
             .output()?;
 
         if !output.status.success() {
             let err = String::from_utf8_lossy(&output.stderr);
-            return Err(anyhow::anyhow!("Failed to create connection: {}", err));
+            return Err(anyhow::anyhow!("nmcli connection failed: {}", err));
         }
 
-        self.nm_connection_name = Some(conn_name.clone());
+        // 记录活动连接
+        let mut active = self.active_connection.lock().await;
+        *active = Some(ActiveConnection {
+            connection_name: info.ssid.clone(),
+            connection_path: None,
+            used_p2p_mode: false,
+        });
 
-        // 激活连接
-        let output = Command::new("nmcli")
-            .args(["connection", "up", &conn_name])
-            .output()?;
-
-        if !output.status.success() {
-            let err = String::from_utf8_lossy(&output.stderr);
-            // 清理失败的连接
-            let _ = Command::new("nmcli")
-                .args(["connection", "delete", &conn_name])
-                .output();
-            return Err(anyhow::anyhow!("Failed to activate connection: {}", err));
-        }
-
-        // 等待连接建立和 IP 获取
-        for i in 1..=10 {
-            tokio::time::sleep(Duration::from_secs(1)).await;
-
-            if let Ok(ip) = self.get_connection_ip(&conn_name) {
-                info!("P2P connection established on attempt {}", i);
-                return Ok(ip);
-            }
-        }
-
-        Err(anyhow::anyhow!("Timeout waiting for IP address"))
-    }
-
-    /// 使用普通 nmcli wifi 连接（会断开现有 WiFi）
-    async fn connect_nmcli_wifi(
-        &mut self,
-        interface: &str,
-        ssid: &str,
-        psk: &str,
-    ) -> anyhow::Result<String> {
-        debug!("Connecting via nmcli wifi on interface {}", interface);
-
-        let conn_name = format!("cattysend-wifi-{}", &ssid[..std::cmp::min(8, ssid.len())]);
-
-        // 先删除可能存在的旧连接
-        let _ = Command::new("nmcli")
-            .args(["connection", "delete", &conn_name])
-            .output();
-
-        // WiFi Direct 热点可能需要一些时间才能被发现
-        let max_retries = 5;
-
-        for attempt in 1..=max_retries {
-            debug!("WiFi connection attempt {}/{}", attempt, max_retries);
-
-            // 触发 WiFi 扫描
-            let _ = Command::new("nmcli")
-                .args(["device", "wifi", "rescan", "ifname", interface])
-                .output();
-
-            tokio::time::sleep(Duration::from_secs(2)).await;
-
-            // 尝试直接连接
-            let output = Command::new("nmcli")
-                .args([
-                    "device", "wifi", "connect", ssid, "password", psk, "ifname", interface,
-                ])
-                .output()?;
-
-            if output.status.success() {
-                info!("✅ WiFi connection successful on attempt {}", attempt);
-                self.nm_connection_name = Some(ssid.to_string());
-                tokio::time::sleep(Duration::from_secs(2)).await;
-                return self.get_interface_ip(interface);
-            }
-
-            let err = String::from_utf8_lossy(&output.stderr);
-            warn!("WiFi connection attempt {} failed: {}", attempt, err.trim());
-        }
-
-        Err(anyhow::anyhow!(
-            "WiFi connection failed after {} attempts",
-            max_retries
-        ))
-    }
-
-    /// 获取连接的 IP 地址
-    fn get_connection_ip(&self, conn_name: &str) -> anyhow::Result<String> {
-        let output = Command::new("nmcli")
-            .args(["-t", "-f", "IP4.ADDRESS", "connection", "show", conn_name])
-            .output()?;
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        for line in stdout.lines() {
-            if line.starts_with("IP4.ADDRESS")
-                && let Some(ip_cidr) = line.split(':').nth(1)
-                && let Some(ip) = ip_cidr.split('/').next()
-            {
-                return Ok(ip.to_string());
-            }
-        }
-
-        Err(anyhow::anyhow!(
-            "No IP address found for connection {}",
-            conn_name
-        ))
+        // 等待并获取 IP
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        self.get_interface_ip(&self.config.main_interface)
     }
 
     /// 断开连接并清理
     pub async fn disconnect(&mut self) -> anyhow::Result<()> {
         info!("Disconnecting WiFi P2P connection");
 
-        // 删除 NetworkManager 连接
-        if let Some(conn_name) = &self.nm_connection_name {
-            debug!("Removing NM connection: {}", conn_name);
+        let active = self.active_connection.lock().await.take();
+
+        if let Some(conn) = active {
+            // 尝试使用 NM D-Bus 删除
+            if let Ok(()) = self.ensure_nm_client().await {
+                let client_guard = self.nm_client.lock().await;
+                if let Some(client) = client_guard.as_ref() {
+                    let _ = client
+                        .delete_connection_by_name(&conn.connection_name)
+                        .await;
+                }
+            }
+
+            // 也尝试 nmcli 删除（备用）
             let _ = Command::new("nmcli")
-                .args(["connection", "delete", conn_name])
+                .args(["connection", "delete", &conn.connection_name])
                 .output();
         }
-
-        // 如果有活动接口，断开它
-        if let Some(iface) = &self.active_interface {
-            let _ = Command::new("nmcli")
-                .args(["device", "disconnect", iface])
-                .output();
-        }
-
-        self.active_interface = None;
-        self.nm_connection_name = None;
-        self.used_p2p_mode = false;
 
         Ok(())
     }
@@ -352,35 +280,31 @@ impl WiFiP2pReceiver {
     }
 
     /// 检查是否已连接
-    pub fn is_connected(&self) -> bool {
-        if let Some(conn_name) = &self.nm_connection_name
-            && let Ok(output) = Command::new("nmcli")
-                .args(["-t", "-f", "STATE", "connection", "show", conn_name])
-                .output()
-        {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            return stdout.contains("activated");
-        }
-        false
+    pub async fn is_connected(&self) -> bool {
+        let active = self.active_connection.lock().await;
+        active.is_some()
     }
 
     /// 获取当前使用的接口名
-    pub fn active_interface(&self) -> Option<&str> {
-        self.active_interface.as_deref()
+    pub fn active_interface(&self) -> &str {
+        &self.config.main_interface
     }
 
     /// 原有 WiFi 是否保持连接
-    pub fn is_dual_connected(&self) -> bool {
-        self.used_p2p_mode
+    pub async fn is_dual_connected(&self) -> bool {
+        let active = self.active_connection.lock().await;
+        active.as_ref().map(|a| a.used_p2p_mode).unwrap_or(false)
     }
 }
 
 impl Drop for WiFiP2pReceiver {
     fn drop(&mut self) {
-        // 尝试清理（同步版本）
-        if let Some(conn_name) = &self.nm_connection_name {
+        // 由于 Drop 是同步的，我们只能尝试使用 nmcli 清理
+        if let Ok(active) = self.active_connection.try_lock()
+            && let Some(conn) = active.as_ref()
+        {
             let _ = Command::new("nmcli")
-                .args(["connection", "delete", conn_name])
+                .args(["connection", "delete", &conn.connection_name])
                 .output();
         }
     }

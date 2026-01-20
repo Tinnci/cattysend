@@ -122,7 +122,7 @@ impl Receiver {
         let local_ip = wifi_receiver.connect(&p2p_info).await?;
 
         // 显示连接状态
-        if wifi_receiver.is_dual_connected() {
+        if wifi_receiver.is_dual_connected().await {
             callback.on_status(&format!("✅ 已连接（双连接模式），本地 IP: {}", local_ip));
         } else {
             callback.on_status(&format!("✅ 已连接，本地 IP: {}", local_ip));
