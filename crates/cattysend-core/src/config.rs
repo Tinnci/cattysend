@@ -88,7 +88,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             device_name: get_default_device_name(),
-            brand_id: BrandId::Linux,
+            brand_id: BrandId::Xiaomi,
             supports_5ghz: true,
             wifi_interface: "wlan0".to_string(),
             download_dir: dirs::download_dir().unwrap_or_else(|| PathBuf::from(".")),
@@ -146,12 +146,14 @@ impl AppSettings {
     /// 格式: 0000XXYY-0000-1000-8000-00805f9b34fb
     /// - XX = 5GHz 标志 (0x01 = 支持, 0x00 = 不支持)
     /// - YY = 厂商 ID
+    ///
+    /// 注意：CatShare 使用自定义后缀 008123456789
     pub fn capability_uuid(&self) -> uuid::Uuid {
         let flag_5ghz: u8 = if self.supports_5ghz { 0x01 } else { 0x00 };
         let brand = self.brand_id.id();
-        // 构造 UUID: 0000XXYY-0000-1000-8000-00805f9b34fb
+        // 构造 UUID: 0000XXYY-0000-1000-8000-008123456789
         let high = (flag_5ghz as u16) << 8 | (brand as u16);
-        uuid::Uuid::from_u128(((high as u128) << 96) | (0x0000_1000_8000_0080_5f9b_34fb_u128))
+        uuid::Uuid::from_u128(((high as u128) << 96) | (0x0000_1000_8000_0081_2345_6789_u128))
     }
 }
 
@@ -170,25 +172,26 @@ mod tests {
     fn test_brand_id() {
         assert_eq!(BrandId::Xiaomi.id(), 30);
         assert_eq!(BrandId::from_id(30).name(), "Xiaomi");
-        assert_eq!(BrandId::Linux.id(), 200);
     }
 
     #[test]
     fn test_capability_uuid() {
         let mut settings = AppSettings::default();
         settings.supports_5ghz = true;
-        settings.brand_id = BrandId::Linux; // 200 = 0xC8
+        settings.brand_id = BrandId::Xiaomi; // 30 = 0x1E
 
         let uuid = settings.capability_uuid();
         let uuid_str = uuid.to_string();
-        // 应该是 000001c8-0000-1000-8000-00805f9b34fb
-        assert!(uuid_str.starts_with("000001c8"), "UUID: {}", uuid_str);
+        // 应该是 0000011e-0000-1000-8000-008123456789
+        assert!(uuid_str.starts_with("0000011e"), "UUID: {}", uuid_str);
+        assert!(uuid_str.ends_with("008123456789"), "UUID: {}", uuid_str);
     }
 
     #[test]
     fn test_default_settings() {
         let settings = AppSettings::default();
-        assert_eq!(settings.brand_id, BrandId::Linux);
+        // 默认为 Xiaomi 以确保兼容性
+        assert_eq!(settings.brand_id, BrandId::Xiaomi);
         assert!(settings.supports_5ghz);
     }
 }

@@ -62,7 +62,7 @@ impl Default for ReceiveOptions {
             wifi_interface: "wlan0".to_string(),
             output_dir: dirs::download_dir().unwrap_or_else(|| PathBuf::from(".")),
             auto_accept: false,
-            brand_id: crate::config::BrandId::Linux,
+            brand_id: crate::config::BrandId::Xiaomi,
             supports_5ghz: true,
         }
     }
