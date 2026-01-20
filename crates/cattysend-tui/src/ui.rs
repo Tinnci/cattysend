@@ -99,17 +99,27 @@ fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
         Tab::Log => 2,
     };
 
-    let perm_status = if app.has_nmcli && app.has_net_raw {
-        Span::styled(" 🛡️ NM:OK ", Style::default().fg(Color::Green))
+    // 分别显示 NM 和 BLE 权限状态
+    let nm_status = if app.has_nmcli {
+        Span::styled(" NM:✓ ", Style::default().fg(Color::Green))
     } else {
-        Span::styled(" 🔓 NM:ERR ", Style::default().fg(Color::Red))
+        Span::styled(" NM:✗ ", Style::default().fg(Color::Red))
+    };
+    let ble_status = if app.has_net_raw {
+        Span::styled("BLE:✓ ", Style::default().fg(Color::Green))
+    } else {
+        Span::styled("BLE:⚠ ", Style::default().fg(Color::Yellow))
     };
 
     let tabs = Tabs::new(titles)
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(Line::from(vec![Span::raw(" Cattysend TUI "), perm_status])),
+                .title(Line::from(vec![
+                    Span::raw(" Cattysend TUI "),
+                    nm_status,
+                    ble_status,
+                ])),
         )
         .select(selected)
         .style(Style::default().fg(Color::White))
