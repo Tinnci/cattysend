@@ -4,6 +4,7 @@
 //!
 //! # 模块
 //!
+//! - `nm_dbus`: NetworkManager D-Bus 客户端 (推荐)
 //! - `p2p_sender`: P2P 热点创建（发送端）
 //! - `p2p_receiver`: P2P 连接（接收端）
 //!
@@ -12,9 +13,11 @@
 //! 核心数据结构，用于在 BLE 握手时交换 WiFi 连接信息。
 //! 敏感字段（SSID、PSK、MAC）可以使用 AES-CTR 加密。
 
+pub mod nm_dbus;
 pub mod p2p_receiver;
 pub mod p2p_sender;
 
+pub use nm_dbus::NmClient;
 pub use p2p_receiver::{P2pReceiverConfig, WiFiP2pReceiver};
 pub use p2p_sender::{P2pConfig, WiFiP2pSender};
 
