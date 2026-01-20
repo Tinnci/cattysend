@@ -20,6 +20,7 @@
 pub mod advertiser;
 pub mod client;
 pub mod gatt;
+pub mod mgmt_advertiser;
 pub mod scanner;
 pub mod server;
 
@@ -27,8 +28,8 @@ use uuid::Uuid;
 
 /// CatShare/MTA 使用 16-bit UUID: 0x3331
 ///
-/// 使用标准蓝牙基底以确保广播时可以被压缩为 16-bit，减小包大小
-pub const ADV_SERVICE_UUID: Uuid = Uuid::from_u128(0x00003331_0000_1000_8000_00805f9b34fb);
+/// 注意：广播发现使用自定义基底 008123456789，而不是标准蓝牙基底
+pub const ADV_SERVICE_UUID: Uuid = Uuid::from_u128(0x00003331_0000_1000_8000_008123456789);
 
 /// Service UUID (用于扫描时匹配，使用标准蓝牙基底)
 ///
@@ -95,6 +96,7 @@ impl DeviceInfo {
 
 // Re-exports
 pub use client::BleClient;
+pub use mgmt_advertiser::{LegacyAdvConfig, MgmtLegacyAdvertiser};
 pub use scanner::{BleScanner, DiscoveredDevice, ScanCallback};
 pub use server::{GattServer, GattServerHandle, P2pReceiveEvent};
 
@@ -108,7 +110,7 @@ mod tests {
         // 广播服务 UUID (CatShare ADV_SERVICE_UUID)
         assert_eq!(
             ADV_SERVICE_UUID.to_string(),
-            "00003331-0000-1000-8000-00805f9b34fb"
+            "00003331-0000-1000-8000-008123456789"
         );
 
         // 标准蓝牙基底版本的服务 UUID

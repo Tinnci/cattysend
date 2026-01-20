@@ -15,10 +15,11 @@
 //! - Service Data (0x01FF): 6 字节身份数据
 //! - Scan Response (0xFFFF): 27 字节，包含设备名称和协议版本
 
-use log::{debug, error, info, trace};
+use log::{debug, error, info, trace, warn};
 
 use crate::ble::{
     ADV_SERVICE_UUID, DeviceInfo, MAIN_SERVICE_UUID, P2P_CHAR_UUID, STATUS_CHAR_UUID,
+    mgmt_advertiser::{LegacyAdvConfig, MgmtLegacyAdvertiser},
 };
 use crate::config::{AppSettings, BrandId};
 use crate::crypto::BleSecurityPersistent;
@@ -245,103 +246,36 @@ impl GattServer {
         let _app_handle = adapter.serve_gatt_application(app).await?;
         debug!("GATT application registered successfully");
 
-        // 构造 CatShare 兼容的广播数据
-        //
-        // CatShare 广播数据结构:
-        //
-        // 主广播包 (advData):
-        // 1. ADV_SERVICE_UUID: 00003331-0000-1000-8000-008123456789
-        // 2. Service Data (000001ff-0000-1000-8000-00805f9b34fb): 6 bytes
-        //    - RANDOM_DATA[0:6] 用于身份识别
-        //
-        // 扫描响应包 (scanRespData):
-        // 1. Service Data (0000ffff-0000-1000-8000-00805f9b34fb): 27 bytes
-        //    - [0-7]: 8 bytes 保留 (全 0)
-        //    - [8-9]: 2 bytes RANDOM_DATA (sender ID)
-        //    - [10-25]: 最多 16 bytes 设备名称 (UTF-8, 超过 15 字节截断并加 \t)
-        //    - [26]: 1 byte 协议版本 (= 1)
-
-        // 1. 服务 UUID
-        let mut service_uuids = BTreeSet::new();
-        service_uuids.insert(ADV_SERVICE_UUID);
-
-        // 2. 使用存储的随机数据
+        // 广播策略：
+        // 1. 尝试 MGMT API (Legacy 模式，需要 CAP_NET_ADMIN)
+        // 2. 如果失败，回退到 bluer (D-Bus，可能使用 Extended Advertising)
         let random_data = self.random_data;
-
-        // 3. 构造 16-bit UUIDs (使用标准基底以确保压缩)
-        // [A] 主服务 & 身份识别 UUID (0x3331)
-        let main_uuid = ADV_SERVICE_UUID;
-
-        // [B] 能力/厂商 UUID (0x01XX - XX是厂商ID, 01表示5GHz支持, 00表示不支持)
         let flag_5ghz: u8 = if self.supports_5ghz { 0x01 } else { 0x00 };
         let brand = self.brand_id.id();
-        let capability_short = ((flag_5ghz as u16) << 8) | (brand as u16);
-        let ident_uuid = uuid::Uuid::from_u128(
-            ((capability_short as u128) << 96) | 0x0000_1000_8000_0080_5f9b_34fb_u128,
-        );
+        let ident_uuid_short = ((flag_5ghz as u16) << 8) | (brand as u16);
 
-        // [C] 设备名 UUID (0xffff)
-        let name_uuid = uuid::Uuid::from_u128(0x0000_ffff_0000_1000_8000_0080_5f9b_34fb_u128);
-
-        // 4. 准备 Service Data 负载
-        // 身份识别负载 (6 bytes)
-        let mut main_payload = vec![0u8; 6];
-        main_payload[0] = random_data[0];
-        main_payload[1] = random_data[1];
-
-        // 能力负载 (6 bytes, 全 0，因为数据已编码在 UUID 中)
-        let ident_payload = vec![0u8; 6];
-
-        // 5. 设备名称负载 (27 bytes)
-        let mut name_payload = vec![0u8; 27];
-        // [0-7]: 保留 (全 0)
-        // [8-9]: sender ID
-        name_payload[8] = random_data[0];
-        name_payload[9] = random_data[1];
-        // [10-25]: 设备名称
-        let name_bytes = self.device_name.as_bytes();
-        if name_bytes.len() <= 15 {
-            // 名称不超过 15 字节，直接复制
-            let copy_len = std::cmp::min(name_bytes.len(), 16);
-            name_payload[10..10 + copy_len].copy_from_slice(&name_bytes[..copy_len]);
-        } else {
-            // 名称超过 15 字节，截断并加 \t 作为标记
-            // 类似 CatShare 的处理
-            let mut truncated = String::from_utf8_lossy(&name_bytes[..15]).to_string();
-            // 回扫确保截断在 UTF-8 字符边界
-            while !truncated.is_empty() && !self.device_name.starts_with(&truncated) {
-                truncated.pop();
+        // 尝试 MGMT Legacy 广播
+        let adv_backend = match self
+            .try_mgmt_advertising(ident_uuid_short, random_data)
+            .await
+        {
+            Ok(mgmt_adv) => {
+                debug!("Using MGMT Legacy advertising (optimal compatibility)");
+                AdvertisingBackend::Mgmt(mgmt_adv)
             }
-            truncated.push('\t');
-            let truncated_bytes = truncated.as_bytes();
-            let copy_len = std::cmp::min(truncated_bytes.len(), 16);
-            name_payload[10..10 + copy_len].copy_from_slice(&truncated_bytes[..copy_len]);
-        }
-        // [26]: 协议版本 = 1
-        name_payload[26] = 1;
+            Err(e) => {
+                warn!(
+                    "MGMT advertising failed ({}), falling back to bluer D-Bus",
+                    e
+                );
+                warn!("Note: This may use Extended Advertising which some devices don't support.");
+                warn!("For Legacy mode, run: sudo setcap 'cap_net_admin+eip' <binary>");
 
-        let mut service_data = std::collections::BTreeMap::new();
-        // 如果是 CatShare 协议，必须包含 0x3331 的 Service Data，否则扫描不到
-        service_data.insert(main_uuid, main_payload);
-        service_data.insert(ident_uuid, ident_payload);
-        service_data.insert(name_uuid, name_payload);
-
-        let adv = Advertisement {
-            advertisement_type: bluer::adv::Type::Peripheral,
-            // 明确包含 Service UUID
-            service_uuids: BTreeSet::from([main_uuid]),
-            service_data,
-            local_name: None,
-            discoverable: Some(true),
-            ..Default::default()
+                // 回退到 bluer
+                let adv_handle = self.start_bluer_advertising(&adapter, random_data).await?;
+                AdvertisingBackend::Bluer(adv_handle)
+            }
         };
-
-        debug!(
-            "Starting BLE advertisement (Legacy Compatible): main={}, ident={}, name={}",
-            main_uuid, ident_uuid, name_uuid
-        );
-        let adv_handle = adapter.advertise(adv).await?;
-        debug!("BLE advertisement started successfully");
 
         info!(
             "GATT Server started, sender_id={}, device_name='{}'",
@@ -349,10 +283,77 @@ impl GattServer {
         );
 
         Ok(GattServerHandle {
-            _adv_handle: adv_handle,
+            _adv_backend: adv_backend,
             _app_handle,
             _session: session,
         })
+    }
+
+    /// 尝试使用 MGMT API 启动 Legacy 广播
+    async fn try_mgmt_advertising(
+        &self,
+        ident_uuid: u16,
+        random_data: [u8; 2],
+    ) -> anyhow::Result<MgmtLegacyAdvertiser> {
+        let adv_config = LegacyAdvConfig::catshare_compatible(
+            0x3331, // CatShare Service UUID
+            ident_uuid,
+            &[random_data[0], random_data[1], 0, 0, 0, 0],
+            &self.device_name,
+            random_data,
+        );
+
+        debug!(
+            "Trying MGMT Legacy advertising: service=0x3331, ident=0x{:04x}",
+            ident_uuid
+        );
+
+        let mut mgmt_adv = MgmtLegacyAdvertiser::new(adv_config).await?;
+        mgmt_adv.start().await?;
+        debug!("MGMT Legacy advertising started successfully");
+
+        Ok(mgmt_adv)
+    }
+
+    /// 使用 bluer D-Bus 启动广播（回退方案）
+    async fn start_bluer_advertising(
+        &self,
+        adapter: &bluer::Adapter,
+        random_data: [u8; 2],
+    ) -> anyhow::Result<bluer::adv::AdvertisementHandle> {
+        // 构造精简的广播数据（尽量保持在 31 字节内以触发 Legacy 模式）
+        let mut service_uuids = BTreeSet::new();
+        service_uuids.insert(ADV_SERVICE_UUID);
+
+        // 只放简短的身份数据，不放 27 字节的名称数据
+        let flag_5ghz: u8 = if self.supports_5ghz { 0x01 } else { 0x00 };
+        let brand = self.brand_id.id();
+        let capability_short = ((flag_5ghz as u16) << 8) | (brand as u16);
+        let ident_uuid = uuid::Uuid::from_u128(
+            ((capability_short as u128) << 96) | 0x0000_1000_8000_0080_5f9b_34fb_u128,
+        );
+
+        let mut ident_payload = vec![0u8; 6];
+        ident_payload[0] = random_data[0];
+        ident_payload[1] = random_data[1];
+
+        let mut service_data = std::collections::BTreeMap::new();
+        service_data.insert(ident_uuid, ident_payload);
+
+        let adv = Advertisement {
+            advertisement_type: bluer::adv::Type::Peripheral,
+            service_uuids,
+            service_data,
+            local_name: Some(self.device_name.clone()),
+            discoverable: Some(true),
+            ..Default::default()
+        };
+
+        debug!("Starting bluer D-Bus advertising (fallback mode)");
+        let adv_handle = adapter.advertise(adv).await?;
+        debug!("Bluer advertising started");
+
+        Ok(adv_handle)
     }
 }
 
@@ -399,9 +400,18 @@ fn process_p2p_write(
     })
 }
 
+/// 广播后端枚举
+#[allow(dead_code)]
+enum AdvertisingBackend {
+    /// MGMT API (Legacy 模式，推荐)
+    Mgmt(MgmtLegacyAdvertiser),
+    /// bluer D-Bus (回退，可能 Extended)
+    Bluer(bluer::adv::AdvertisementHandle),
+}
+
 /// GATT Server Handle - 保持服务运行
 pub struct GattServerHandle {
-    _adv_handle: bluer::adv::AdvertisementHandle,
+    _adv_backend: AdvertisingBackend,
     _app_handle: bluer::gatt::local::ApplicationHandle,
     _session: bluer::Session,
 }
