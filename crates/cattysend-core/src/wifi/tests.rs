@@ -274,11 +274,12 @@ mod nm_dbus_tests {
 }
 
 // ============================================================================
-// Mock 测试辅助
+// Mock 测试辅助 (供其他测试模块使用)
 // ============================================================================
 
 /// 用于测试的 P2pInfo 工厂
-#[cfg(test)]
+/// 供其他模块的测试使用
+#[allow(dead_code)]
 pub fn test_p2p_info() -> P2pInfo {
     P2pInfo::new(
         "DIRECT-test123".to_string(),
@@ -289,7 +290,8 @@ pub fn test_p2p_info() -> P2pInfo {
 }
 
 /// 用于测试的加密 P2pInfo 工厂
-#[cfg(test)]
+/// 供其他模块的测试使用
+#[allow(dead_code)]
 pub fn test_encrypted_p2p_info() -> P2pInfo {
     P2pInfo::with_encryption(
         "test-sender-id".to_string(),

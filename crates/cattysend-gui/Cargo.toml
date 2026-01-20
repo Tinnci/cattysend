@@ -1,0 +1,39 @@
+[package]
+name = "cattysend-gui"
+version = "0.1.0"
+edition = "2024"
+description = "Cattysend GUI application built with Dioxus"
+license = "MIT"
+authors = ["Cattysend Contributors"]
+keywords = ["file-transfer", "gui", "dioxus", "linux"]
+categories = ["gui", "network-programming"]
+
+[[bin]]
+name = "cattysend-gui"
+path = "src/main.rs"
+
+[dependencies]
+# Core library
+cattysend-core = { path = "../cattysend-core" }
+
+# Dioxus framework
+dioxus = { version = "0.6", features = ["desktop"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+# Error handling
+anyhow = { workspace = true }
+
+# Utilities
+hostname = { workspace = true }
+dirs = { workspace = true }
+
+[features]
+default = []
+
+[dev-dependencies]
