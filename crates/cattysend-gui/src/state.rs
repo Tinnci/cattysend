@@ -9,10 +9,9 @@ use std::path::PathBuf;
 pub enum AppMode {
     #[default]
     Home,
+    #[expect(dead_code, reason = "发送模式功能规划中，当前合并到 Home 模式")]
     Sending,
     Receiving,
-    /// 设置模式。GUI 中通过模式切换进入。
-    #[expect(dead_code, reason = "设置界面功能规划中，将在后续版本实现")]
     Settings,
 }
 

@@ -3,41 +3,34 @@
 use crate::state::TransferStatus;
 use dioxus::prelude::*;
 
-#[derive(Props, Clone, PartialEq)]
-pub struct HeaderProps {
-    pub status: TransferStatus,
-}
-
 /// 应用头部
 #[component]
-pub fn Header(props: HeaderProps) -> Element {
-    let status_class = match &props.status {
-        TransferStatus::Idle => "",
-        TransferStatus::Scanning => "scanning",
-        TransferStatus::Error(_) => "error",
-        _ => "",
+pub fn Header(status: TransferStatus) -> Element {
+    let status_class = match status {
+        TransferStatus::Scanning => "status-badge scanning",
+        TransferStatus::Error(_) => "status-badge error",
+        _ => "status-badge",
     };
 
-    let status_text = match &props.status {
-        TransferStatus::Idle => "就绪",
-        TransferStatus::Scanning => "扫描中...",
-        TransferStatus::Connecting => "连接中...",
-        TransferStatus::Transferring { .. } => "传输中...",
-        TransferStatus::Completed { .. } => "已完成",
-        TransferStatus::Error(e) => e.as_str(),
+    let status_text = match status {
+        TransferStatus::Idle => "系统就绪",
+        TransferStatus::Scanning => "正在探测周边设备...",
+        TransferStatus::Connecting => "建立安全通道...",
+        TransferStatus::Transferring { .. } => "数据传输中",
+        TransferStatus::Completed { .. } => "传输已完成",
+        TransferStatus::Error(_) => "系统异常",
     };
 
     rsx! {
-        header { class: "header",
-            div { class: "logo",
-                span { class: "logo-icon", "🐱" }
-                h1 { "Cattysend" }
-            }
+        div { class: "logo",
+            h1 { "CATTYSEND 2026" }
+        }
 
-            div { class: "status-badge {status_class}",
-                span { class: "status-dot" }
-                span { "{status_text}" }
+        div { class: "{status_class}",
+            if matches!(status, TransferStatus::Scanning) {
+                span { style: "display: inline-block; width: 10; height: 10; background: black; margin-right: 8px;", "■" }
             }
+            "{status_text}"
         }
     }
 }
