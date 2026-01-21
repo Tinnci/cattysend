@@ -174,9 +174,11 @@ mod tests {
 
     #[test]
     fn test_capability_uuid() {
-        let mut settings = AppSettings::default();
-        settings.supports_5ghz = true;
-        settings.brand_id = BrandId::Xiaomi; // 30 = 0x1E
+        let settings = AppSettings {
+            supports_5ghz: true,
+            brand_id: BrandId::Xiaomi, // 30 = 0x1E
+            ..Default::default()
+        };
 
         let uuid = settings.capability_uuid();
         let uuid_str = uuid.to_string();

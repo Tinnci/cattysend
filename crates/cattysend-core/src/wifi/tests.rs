@@ -181,6 +181,38 @@ fn test_check_capabilities() {
 }
 
 // ============================================================================
+// Mock 测试辅助 (供其他测试模块使用)
+// ============================================================================
+
+/// 用于测试的 P2pInfo 工厂
+/// 供其他模块的测试使用
+#[cfg(test)]
+#[expect(dead_code, reason = "测试辅助函数，供其他模块的集成测试使用")]
+pub fn test_p2p_info() -> P2pInfo {
+    P2pInfo::new(
+        "DIRECT-test123".to_string(),
+        "testpsk1".to_string(),
+        "00:11:22:33:44:55".to_string(),
+        8443,
+    )
+}
+
+/// 用于测试的加密 P2pInfo 工厂
+/// 供其他模块的测试使用
+#[cfg(test)]
+#[expect(dead_code, reason = "测试辅助函数，供其他模块的集成测试使用")]
+pub fn test_encrypted_p2p_info() -> P2pInfo {
+    P2pInfo::with_encryption(
+        "test-sender-id".to_string(),
+        "base64_encrypted_ssid".to_string(),
+        "base64_encrypted_psk".to_string(),
+        "base64_encrypted_mac".to_string(),
+        8443,
+        "base64_public_key".to_string(),
+    )
+}
+
+// ============================================================================
 // NmClient 测试 (需要系统 D-Bus)
 // ============================================================================
 
@@ -271,34 +303,4 @@ mod nm_dbus_tests {
         client.delete_connection(&conn_path.as_ref()).await.unwrap();
         println!("Deleted connection");
     }
-}
-
-// ============================================================================
-// Mock 测试辅助 (供其他测试模块使用)
-// ============================================================================
-
-/// 用于测试的 P2pInfo 工厂
-/// 供其他模块的测试使用
-#[allow(dead_code)]
-pub fn test_p2p_info() -> P2pInfo {
-    P2pInfo::new(
-        "DIRECT-test123".to_string(),
-        "testpsk1".to_string(),
-        "00:11:22:33:44:55".to_string(),
-        8443,
-    )
-}
-
-/// 用于测试的加密 P2pInfo 工厂
-/// 供其他模块的测试使用
-#[allow(dead_code)]
-pub fn test_encrypted_p2p_info() -> P2pInfo {
-    P2pInfo::with_encryption(
-        "test-sender-id".to_string(),
-        "base64_encrypted_ssid".to_string(),
-        "base64_encrypted_psk".to_string(),
-        "base64_encrypted_mac".to_string(),
-        8443,
-        "base64_public_key".to_string(),
-    )
 }
