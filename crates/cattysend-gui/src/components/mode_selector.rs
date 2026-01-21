@@ -7,9 +7,9 @@ use dioxus::prelude::*;
 #[component]
 pub fn ModeSelector(current_mode: AppMode, on_change: EventHandler<AppMode>) -> Element {
     let modes = vec![
-        (AppMode::Home, "🏠", "文件传输", "发送或接收文件"),
-        (AppMode::Receiving, "📥", "接收模式", "等待连接"),
-        (AppMode::Settings, "⚙️", "系统设置", "配置应用"),
+        (AppMode::Home, "🏠", "主页", "发送文件"),
+        (AppMode::Receiving, "📥", "接收", "等待连接"),
+        (AppMode::Settings, "⚙️", "设置", "系统配置"),
     ];
 
     rsx! {

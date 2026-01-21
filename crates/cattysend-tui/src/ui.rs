@@ -139,6 +139,11 @@ fn draw_main(frame: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
+    if app.mode == AppMode::Receiving {
+        draw_receiving_mode(frame, app, area);
+        return;
+    }
+
     match app.tab {
         Tab::Devices => draw_devices_tab(frame, app, area),
         Tab::Transfer => draw_transfer_tab(frame, app, area),
@@ -152,24 +157,61 @@ fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Yellow));
 
-    let inner_area = centered_rect(60, 30, area);
+    let inner_area = centered_rect(70, 50, area);
+
+    // Styling for active/inactive fields
+    let active_style = Style::default()
+        .fg(Color::Cyan)
+        .add_modifier(Modifier::BOLD);
+    let inactive_style = Style::default().fg(Color::Gray);
+    let value_style = Style::default().bg(Color::DarkGray).fg(Color::White);
+
+    let name_label = if !app.settings_focus_brand {
+        Span::styled(">> 设备名称: ", active_style)
+    } else {
+        Span::styled("   设备名称: ", inactive_style)
+    };
+
+    let brand_label = if app.settings_focus_brand {
+        Span::styled(">> 设备品牌: ", active_style)
+    } else {
+        Span::styled("   设备品牌: ", inactive_style)
+    };
 
     let content = vec![
         Line::from(""),
+        // Device Name Input
         Line::from(vec![
-            Span::styled("修改设备名称: ", Style::default().bold()),
+            name_label,
+            Span::styled(format!(" {:<20} ", app.input_buffer), value_style),
+            if !app.settings_focus_brand {
+                Span::styled("_", Style::default().fg(Color::White).bold())
+            } else {
+                Span::raw(" ")
+            },
+        ]),
+        Line::from(""),
+        // Brand Selection
+        Line::from(vec![
+            brand_label,
             Span::styled(
-                &app.input_buffer,
-                Style::default().fg(Color::Cyan).bg(Color::DarkGray),
+                format!(" < {:<10} > ", app.temp_brand_id.name()),
+                if app.settings_focus_brand {
+                    value_style.fg(Color::Yellow)
+                } else {
+                    value_style
+                },
             ),
-            Span::styled("_", Style::default().fg(Color::White).bold()), // 光标模拟
         ]),
         Line::from(""),
+        Line::from(""),
+        // Help Text
         Line::from(vec![
-            Span::raw("当前保存值: "),
-            Span::styled(&app.settings.device_name, Style::default().fg(Color::Gray)),
+            Span::styled(" [Tab] ", Style::default().fg(Color::Blue).bold()),
+            Span::raw("切换焦点   "),
+            Span::styled(" [←/→] ", Style::default().fg(Color::Blue).bold()),
+            Span::raw("修改品牌"),
         ]),
-        Line::from(""),
         Line::from(""),
         Line::from(vec![
             Span::styled(" [Enter] ", Style::default().fg(Color::Green).bold()),
@@ -184,6 +226,7 @@ fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
         .alignment(Alignment::Center)
         .wrap(Wrap { trim: true });
 
+    frame.render_widget(ratatui::widgets::Clear, inner_area);
     frame.render_widget(paragraph, inner_area);
 }
 
@@ -400,4 +443,68 @@ fn draw_file_selection(frame: &mut Frame, app: &App, area: Rect) {
     state.select(Some(app.file_selector.selected));
 
     frame.render_stateful_widget(list, area, &mut state);
+}
+
+fn draw_receiving_mode(frame: &mut Frame, app: &App, area: Rect) {
+    let block = Block::default()
+        .title(" 📥 接收模式 ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::LightGreen));
+
+    let inner_area = centered_rect(60, 40, area);
+
+    // Initial simple animation based on time or just static for now
+    // We can use the frame count or time if we had it, but for now specific "frames"
+    // of animation could be simulated if we had a tick counter in App.
+    // For now, static ASCII art.
+
+    // For now, static ASCII art.
+
+    let content = vec![
+        Line::from(""),
+        Line::from(vec![Span::styled(
+            "正在广播信号...",
+            Style::default()
+                .fg(Color::Green)
+                .bold()
+                .add_modifier(Modifier::SLOW_BLINK),
+        )]),
+        Line::from(""),
+        Line::from(vec![
+            Span::raw("设备名称: "),
+            Span::styled(
+                &app.settings.device_name,
+                Style::default().fg(Color::Cyan).bold(),
+            ),
+        ]),
+        Line::from(vec![
+            Span::raw("品牌身份: "),
+            Span::styled(
+                app.settings.brand_id.name(),
+                Style::default().fg(Color::Yellow),
+            ),
+        ]),
+        Line::from(""),
+        Line::from(""),
+        Line::from(vec![Span::raw("请在其他设备上寻找并发送文件到此设备。")]),
+        Line::from(""),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(" [r] ", Style::default().fg(Color::Red).bold()),
+            Span::raw("停止接收并返回"),
+        ]),
+    ];
+
+    // Center the art and text
+    let paragraph = Paragraph::new(content)
+        .block(block)
+        .alignment(Alignment::Center)
+        .wrap(Wrap { trim: true });
+
+    frame.render_widget(ratatui::widgets::Clear, area); // Clear background
+    frame.render_widget(paragraph, inner_area);
+
+    // Draw radar art in the center above text? Or just part of text?
+    // Let's just keep it simple text for now to ensure cleanliness.
+    // If I wanted the art, I'd put it in the content vector.
 }

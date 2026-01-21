@@ -242,6 +242,10 @@ pub struct App {
     pub settings: AppSettings,
     /// 用于编辑设置的临时缓冲区
     pub input_buffer: String,
+    /// Settings Mode: true if focusing on Brand selection, false if editing Name
+    pub settings_focus_brand: bool,
+    /// Temporary brand ID for editing
+    pub temp_brand_id: cattysend_core::BrandId,
 
     // 文件选择器
     pub file_selector: FileSelector,
@@ -274,8 +278,10 @@ impl App {
             has_nmcli,
             has_net_raw,
             show_perm_warning: !has_nmcli || !has_net_raw,
-            settings,
+            temp_brand_id: settings.brand_id, // BrandId (enum) is Copy, so this is fine if we access it before move
+            settings,                         // Move happens here, so fields above can access
             input_buffer: String::new(),
+            settings_focus_brand: false,
             file_selector: FileSelector::new(),
             status_message: "就绪".to_string(),
         };

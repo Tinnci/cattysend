@@ -13,7 +13,7 @@ use crate::state::{AppMode, DiscoveredDeviceInfo, TransferStatus};
 use crate::styles::GLOBAL_CSS;
 
 use cattysend_core::{
-    AppSettings, BleScanner, DiscoveredDevice, ReceiveEvent, ReceiveOptions, Receiver,
+    AppSettings, BleScanner, BrandId, DiscoveredDevice, ReceiveEvent, ReceiveOptions, Receiver,
     ScanCallback, SendEvent, SendOptions, Sender, SimpleReceiveCallback, SimpleSendCallback,
 };
 
@@ -88,7 +88,7 @@ pub fn App() -> Element {
     let mut devices = use_signal(Vec::<DiscoveredDeviceInfo>::new);
     let mut selected_device = use_signal(|| Option::<String>::None);
     let mut selected_files = use_signal(Vec::<PathBuf>::new);
-    let settings = use_signal(AppSettings::load);
+    let mut settings = use_signal(AppSettings::load);
 
     // === 接收 & 日志状态 ===
     let mut receive_state = use_signal(|| ReceiveState::Idle);
@@ -98,12 +98,6 @@ pub fn App() -> Element {
     // === 任务管理 ===
     let mut active_receive_task = use_signal(|| Option::<dioxus::prelude::Task>::None);
     let mut active_send_task = use_signal(|| Option::<dioxus::prelude::Task>::None);
-
-    // === 权限检查 ===
-    let permissions = use_signal(|| {
-        let (has_nmcli, has_net_raw) = cattysend_core::wifi::check_capabilities();
-        (has_nmcli, has_net_raw)
-    });
 
     // === 事件处理循环 (协程) ===
     let event_handler = use_coroutine(move |mut rx: UnboundedReceiver<GuiEvent>| async move {
@@ -549,21 +543,102 @@ pub fn App() -> Element {
                         }
                     }
                 },
+
                 AppMode::Settings => {
-                    let s = settings.read().clone();
-                    let p = *permissions.read();
-                    let supports_5g = if s.supports_5ghz { "开启" } else { "关闭" };
-                    let nmcli_status = if p.0 { "✅ NM 就绪" } else { "❌ NM 缺失" };
-                    let net_raw_status = if p.1 { "✅ RAW 正常" } else { "❌ 权限不足" };
+                    let s = settings.read();
+                    let brands = vec![
+                        (BrandId::Xiaomi, "Xiaomi"),
+                        (BrandId::Vivo, "Vivo"),
+                        (BrandId::Oppo, "OPPO"),
+                        (BrandId::Realme, "realme"),
+                        (BrandId::OnePlus, "OnePlus"),
+                        (BrandId::Meizu, "Meizu"),
+                        (BrandId::Samsung, "Samsung"),
+                        // (BrandId::Honor, "Honor"), // Honor not yet supported in core
+                        (BrandId::Lenovo, "Lenovo"),
+                        (BrandId::Linux, "Linux (Generic)"),
+                    ];
 
                     rsx! {
-                        div { class: "bento-tile", style: "grid-column: span 12;",
-                            h2 { "⚙️ 设置" }
-                            p { "设备: {s.device_name}" }
-                            p { "5GHz: {supports_5g}" }
-                            p { "{nmcli_status}" }
-                            p { "{net_raw_status}" }
-                            button { class: "btn btn-primary", onclick: move |_| mode.set(AppMode::Home), "返回" }
+                        div { class: "bento-tile", style: "grid-column: span 12; display: flex; flex-direction: column; gap: 20px;",
+                            div { class: "card-header", h2 { "⚙️ 配置中心" } }
+
+                            div { style: "display: grid; grid-template-columns: 1fr 1fr; gap: 24px;",
+                                // 左侧：基本信息
+                                div { style: "display: flex; flex-direction: column; gap: 16px;",
+                                    div { class: "form-group",
+                                        label { style: "display: block; font-weight: 700; margin-bottom: 8px;", "设备名称" }
+                                        input {
+                                            class: "input-field",
+                                            style: "width: 100%; padding: 12px; border: 2px solid var(--border); font-size: 16px; font-weight: 600;",
+                                            value: "{s.device_name}",
+                                            oninput: move |e| settings.write().device_name = e.value()
+                                        }
+                                        p { style: "font-size: 12px; color: #666; margin-top: 4px;", "其他设备扫描时将显示此名称" }
+                                    }
+
+                                    div { class: "form-group",
+                                        label { style: "display: block; font-weight: 700; margin-bottom: 8px;", "设备品牌 (Vendor ID)" }
+                                        select {
+                                            class: "input-field",
+                                            style: "width: 100%; padding: 12px; border: 2px solid var(--border); font-size: 16px; font-weight: 600; background: white;",
+                                            onchange: move |e| {
+                                                if let Ok(id) = e.value().parse::<u8>() {
+                                                    settings.write().brand_id = BrandId::from_id(id);
+                                                }
+                                            },
+                                            for (brand, label) in brands {
+                                                option {
+                                                    value: "{brand.id()}",
+                                                    selected: s.brand_id == brand,
+                                                    "{label}"
+                                                }
+                                            }
+                                        }
+                                        p { style: "font-size: 12px; color: #666; margin-top: 4px;", "用于伪装成特定品牌以提高互传兼容性" }
+                                    }
+                                }
+
+                                // 右侧：高级选项
+                                div { style: "display: flex; flex-direction: column; gap: 16px;",
+                                    div { class: "form-group",
+                                        label { style: "display: flex; align-items: center; gap: 12px; font-weight: 700; cursor: pointer;",
+                                            input {
+                                                type: "checkbox",
+                                                style: "width: 20px; height: 20px; accent-color: var(--primary);",
+                                                checked: s.supports_5ghz,
+                                                onchange: move |e| settings.write().supports_5ghz = e.checked()
+                                            }
+                                            "启用 5GHz Wi-Fi 广播"
+                                        }
+                                        p { style: "font-size: 12px; color: #666; margin-left: 32px; margin-top: 4px;", "开启后传输速度更快，但部分旧设备可能无法发现" }
+                                    }
+                                }
+                            }
+
+                            div { style: "margin-top: auto; padding-top: 20px; border-top: 2px solid #eee; display: flex; justify-content: flex-end; gap: 12px;",
+                                button {
+                                    class: "btn",
+                                    onclick: move |_| {
+                                        // RELOAD implies cancel
+                                        settings.set(AppSettings::load());
+                                        mode.set(AppMode::Home);
+                                    },
+                                    "取消"
+                                }
+                                button {
+                                    class: "btn btn-primary",
+                                    onclick: move |_| {
+                                        if let Err(e) = settings.read().save() {
+                                            event_handler.send(GuiEvent::Error(format!("保存设置失败: {}", e)));
+                                        } else {
+                                            event_handler.send(GuiEvent::Log(LogLevel::Info, "设置已保存".to_string()));
+                                            mode.set(AppMode::Home);
+                                        }
+                                    },
+                                    "保存更改"
+                                }
+                            }
                         }
                     }
                 },

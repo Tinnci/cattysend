@@ -126,19 +126,52 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> Result
 
             match app.mode {
                 app::AppMode::Settings => match key.code {
-                    KeyCode::Esc => app.mode = app::AppMode::Idle,
-                    KeyCode::Enter => {
-                        app.settings.device_name = app.input_buffer.clone();
-                        let _ = app.settings.save();
-                        app.add_log(
-                            app::LogLevel::Info,
-                            format!("设备名称已更新为: {}", app.settings.device_name),
-                        );
+                    KeyCode::Esc => {
                         app.mode = app::AppMode::Idle;
                     }
-                    KeyCode::Char(c) => app.input_buffer.push(c),
-                    KeyCode::Backspace => {
+                    KeyCode::Tab | KeyCode::Down | KeyCode::Up => {
+                        app.settings_focus_brand = !app.settings_focus_brand;
+                    }
+                    KeyCode::Left | KeyCode::Right if app.settings_focus_brand => {
+                        // Simple cycling through common brand IDs
+                        let ids = [10, 11, 20, 30, 41, 50, 70, 100, 200]; // Oppo, Realme, Vivo, Xiaomi, OnePlus, Meizu, Samsung, Lenovo, Linux
+                        let current_id = app.temp_brand_id.id();
+
+                        // Find index
+                        let idx = ids.iter().position(|&x| x == current_id).unwrap_or(3); // Default to Xiaomi (30) if unknown
+
+                        let new_idx = if key.code == KeyCode::Left {
+                            if idx == 0 { ids.len() - 1 } else { idx - 1 }
+                        } else {
+                            (idx + 1) % ids.len()
+                        };
+
+                        app.temp_brand_id = cattysend_core::BrandId::from_id(ids[new_idx]);
+                    }
+                    KeyCode::Enter => {
+                        // Save both name and brand
+                        app.settings.device_name = app.input_buffer.clone();
+                        app.settings.brand_id = app.temp_brand_id;
+
+                        if let Err(e) = app.settings.save() {
+                            app.add_log(app::LogLevel::Error, format!("保存失败: {}", e));
+                        } else {
+                            app.add_log(
+                                app::LogLevel::Info,
+                                format!(
+                                    "设置已更新: {} ({})",
+                                    app.settings.device_name,
+                                    app.settings.brand_id.name()
+                                ),
+                            );
+                        }
+                        app.mode = app::AppMode::Idle;
+                    }
+                    KeyCode::Backspace if !app.settings_focus_brand => {
                         app.input_buffer.pop();
+                    }
+                    KeyCode::Char(c) if !app.settings_focus_brand => {
+                        app.input_buffer.push(c);
                     }
                     _ => {}
                 },
@@ -173,6 +206,8 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> Result
                     }
                     KeyCode::Char('p') => {
                         app.input_buffer = app.settings.device_name.clone();
+                        app.temp_brand_id = app.settings.brand_id; // Sync temp brand with current
+                        app.settings_focus_brand = false; // Reset focus to name
                         app.mode = app::AppMode::Settings;
                     }
                     KeyCode::Up | KeyCode::Char('k') => app.previous_device(),
