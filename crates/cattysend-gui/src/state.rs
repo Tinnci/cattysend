@@ -22,6 +22,7 @@ pub struct DiscoveredDeviceInfo {
     pub address: String,
     pub rssi: i16,
     pub brand: Option<String>,
+    pub brand_id: Option<i16>,
     pub sender_id: String,
     pub supports_5ghz: bool,
 }

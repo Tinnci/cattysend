@@ -185,11 +185,11 @@ impl WiFiP2pSender {
             .activate_connection(&conn_path.as_ref(), &device)
             .await?;
 
-        // 等待激活完成
-        let ip = client
-            .wait_for_ip(&active_conn.as_ref(), Duration::from_secs(15))
+        // 等待连接状态变为ACTIVATED（无需等待IP配置，shared模式自动使用10.42.0.1）
+        client
+            .wait_for_activation(&active_conn.as_ref(), Duration::from_secs(15))
             .await?;
-        info!("Hotspot active with IP: {}", ip);
+        info!("Hotspot activated successfully");
 
         // 记录活动热点信息（用于清理）
         let mut hotspot = self.active_hotspot.lock().await;

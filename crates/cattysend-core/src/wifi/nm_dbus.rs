@@ -206,7 +206,22 @@ pub mod device_state {
 
 /// 连接状态常量
 pub mod active_connection_state {
+    pub const UNKNOWN: u32 = 0;
+    pub const ACTIVATING: u32 = 1;
     pub const ACTIVATED: u32 = 2;
+    pub const DEACTIVATING: u32 = 3;
+    pub const DEACTIVATED: u32 = 4;
+
+    pub fn name(state: u32) -> &'static str {
+        match state {
+            UNKNOWN => "UNKNOWN",
+            ACTIVATING => "ACTIVATING",
+            ACTIVATED => "ACTIVATED",
+            DEACTIVATING => "DEACTIVATING",
+            DEACTIVATED => "DEACTIVATED",
+            _ => "INVALID",
+        }
+    }
 }
 
 /// WiFi 设备信息
@@ -520,6 +535,60 @@ impl NmClient {
             .context("Failed to request WiFi scan")?;
 
         Ok(())
+    }
+
+    /// 等待连接激活（不等待IP配置，适用于热点模式）
+    pub async fn wait_for_activation(
+        &self,
+        active_connection: &ObjectPath<'_>,
+        timeout: Duration,
+    ) -> Result<()> {
+        let start = std::time::Instant::now();
+        let mut last_state = 0u32;
+
+        loop {
+            if start.elapsed() > timeout {
+                return Err(anyhow::anyhow!(
+                    "Timeout waiting for connection activation (last state: {})",
+                    active_connection_state::name(last_state)
+                ));
+            }
+
+            let active = NmActiveConnectionProxy::builder(&self.connection)
+                .path(active_connection)?
+                .build()
+                .await?;
+
+            let state = active.state().await.unwrap_or(0);
+
+            // 状态变化时记录日志
+            if state != last_state {
+                debug!(
+                    "Connection state changed: {} -> {}",
+                    active_connection_state::name(last_state),
+                    active_connection_state::name(state)
+                );
+                last_state = state;
+            }
+
+            match state {
+                active_connection_state::ACTIVATED => {
+                    info!("Connection activated successfully");
+                    return Ok(());
+                }
+                active_connection_state::DEACTIVATED | active_connection_state::DEACTIVATING => {
+                    return Err(anyhow::anyhow!(
+                        "Connection failed to activate (state: {})",
+                        active_connection_state::name(state)
+                    ));
+                }
+                _ => {
+                    // UNKNOWN, ACTIVATING - 继续等待
+                }
+            }
+
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
     }
 
     /// 等待连接激活并获取 IP

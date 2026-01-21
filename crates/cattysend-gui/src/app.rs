@@ -116,7 +116,8 @@ pub fn App() -> Element {
                                 name: device.name.clone(),
                                 address: device.address.clone(),
                                 rssi: device.rssi.unwrap_or(-100),
-                                brand: device.brand_id.map(|b| b.to_string()),
+                                brand: Some(device.brand.clone()),
+                                brand_id: device.brand_id,
                                 sender_id: device.sender_id.clone(),
                                 supports_5ghz: device.supports_5ghz,
                             });
@@ -298,7 +299,8 @@ pub fn App() -> Element {
                         address: dev.address.clone(),
                         name: dev.name.clone(),
                         rssi: Some(dev.rssi),
-                        brand_id: dev.brand.and_then(|b| b.parse().ok()),
+                        brand: dev.brand.clone().unwrap_or_else(|| "Unknown".to_string()),
+                        brand_id: dev.brand_id,
                         sender_id: dev.sender_id.clone(),
                         supports_5ghz: dev.supports_5ghz,
                     };
