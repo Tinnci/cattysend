@@ -276,4 +276,128 @@ h2 { font-size: 24px; font-weight: 800; margin-bottom: 16px; }
     font-weight: 900;
     text-transform: uppercase;
 }
+
+/* === Animations === */
+@keyframes pulse-ring {
+    0% { transform: scale(1); opacity: 0.8; }
+    100% { transform: scale(2.5); opacity: 0; }
+}
+
+@keyframes bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* === Receiver UI Components === */
+.receive-container {
+    padding: 40px;
+    background: white;
+    border: 3px solid var(--border);
+    margin-bottom: 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 300px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+}
+
+/* Radar / Broadcasting Effect */
+.radar-box {
+    position: relative;
+    width: 100px;
+    height: 100px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 24px;
+}
+
+.radar-emitter {
+    width: 60px;
+    height: 60px;
+    background: var(--accent);
+    border: 3px solid var(--border);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 30px;
+    z-index: 10;
+    position: relative;
+    box-shadow: 4px 4px 0px var(--border);
+}
+
+.radar-ring {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 60px;
+    height: 60px;
+    border: 4px solid var(--accent);
+    border-radius: 50%;
+    opacity: 0;
+    box-sizing: border-box;
+}
+
+.radar-ring.animating {
+    animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+
+.radar-ring:nth-child(1) { animation-delay: 0s; }
+.radar-ring:nth-child(2) { animation-delay: 0.6s; }
+.radar-ring:nth-child(3) { animation-delay: 1.2s; }
+
+/* Status Text Badge */
+.status-pill {
+    margin-top: 16px;
+    background: white;
+    border: 2px solid var(--border);
+    padding: 8px 16px;
+    font-weight: 800;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 4px 4px 0px var(--border);
+    z-index: 10;
+}
+
+/* File Transfer Card */
+.rx-file-card {
+    width: 100%;
+    max-width: 450px;
+    border: 3px solid var(--border);
+    background: white;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    box-shadow: 6px 6px 0px var(--border);
+    z-index: 10;
+}
+
+.rx-file-icon {
+    font-size: 32px;
+    margin-right: 12px;
+    animation: bounce 1s infinite;
+}
+
+/* Connecting Spinner */
+.spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid var(--border);
+    border-top: 4px solid var(--primary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
 "#;
