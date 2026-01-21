@@ -55,7 +55,6 @@ pub enum ReceiveState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum LogLevel {
     Error = 0,
-    #[expect(dead_code, reason = "保留用于未来警告级别日志")]
     Warn = 1,
     Info = 2,
     #[expect(dead_code, reason = "保留用于未来调试级别日志")]
@@ -95,6 +94,9 @@ pub fn App() -> Element {
     let mut receive_state = use_signal(|| ReceiveState::Idle);
     let mut logs = use_signal(Vec::<LogEntry>::new);
     let log_filter = use_signal(|| LogLevel::Info);
+
+    // === 任务管理 ===
+    let mut active_receive_task = use_signal(|| Option::<dioxus::prelude::Task>::None);
 
     // === 权限检查 ===
     let permissions = use_signal(|| {
@@ -289,56 +291,108 @@ pub fn App() -> Element {
     };
 
     // === 接收逻辑 ===
-    let on_mode_change = move |new_mode: AppMode| {
-        mode.set(new_mode.clone());
+    let mut on_mode_change = move |new_mode: AppMode| {
+        // 如果切换到接收模式
         if new_mode == AppMode::Receiving {
+            // 检查是否已经在接收模式（防止重复启动）
+            if *mode.read() == AppMode::Receiving {
+                event_handler.send(GuiEvent::Log(
+                    LogLevel::Warn,
+                    "已在接收模式中，忽略重复请求".to_string(),
+                ));
+                return;
+            }
+
+            // 清除之前的任务引用（Task drop时会取消）
+            active_receive_task.set(None);
+
+            mode.set(AppMode::Receiving);
+
             let tx = event_handler;
             let current_settings = settings.read().clone();
-            spawn(async move {
+
+            event_handler.send(GuiEvent::Log(
+                LogLevel::Info,
+                format!(
+                    "正在启动接收模式，设备名: '{}'",
+                    current_settings.device_name
+                ),
+            ));
+
+            // 启动新的接收任务
+            let handle = spawn(async move {
                 let options = ReceiveOptions {
                     device_name: current_settings.device_name.clone(),
                     brand_id: current_settings.brand_id,
                     supports_5ghz: current_settings.supports_5ghz,
                     ..Default::default()
                 };
-                if let Ok(receiver) = Receiver::new(options) {
-                    let (callback, mut rx) = SimpleReceiveCallback::new(true);
-                    tx.send(GuiEvent::ReceiveStatusUpdate(ReceiveState::Advertising {
-                        device_name: current_settings.device_name,
-                    }));
-                    let tx_ev = tx;
-                    spawn(async move {
-                        while let Some(event) = rx.recv().await {
-                            match event {
-                                ReceiveEvent::Status(s) => {
-                                    tx_ev.send(GuiEvent::Log(LogLevel::Info, s))
-                                }
-                                ReceiveEvent::Progress { received, total } => {
-                                    tx_ev.send(GuiEvent::ReceiveStatusUpdate(
-                                        ReceiveState::Receiving {
-                                            progress: if total > 0 {
-                                                (received as f32 / total as f32) * 100.0
-                                            } else {
-                                                0.0
+
+                match Receiver::new(options) {
+                    Ok(receiver) => {
+                        let (callback, mut rx) = SimpleReceiveCallback::new(true);
+
+                        tx.send(GuiEvent::ReceiveStatusUpdate(ReceiveState::Advertising {
+                            device_name: current_settings.device_name.clone(),
+                        }));
+
+                        tx.send(GuiEvent::Log(
+                            LogLevel::Info,
+                            "GATT Server 已启动，等待连接...".to_string(),
+                        ));
+
+                        let tx_ev = tx;
+                        spawn(async move {
+                            while let Some(event) = rx.recv().await {
+                                match event {
+                                    ReceiveEvent::Status(s) => {
+                                        tx_ev.send(GuiEvent::Log(LogLevel::Info, s))
+                                    }
+                                    ReceiveEvent::Progress { received, total } => {
+                                        tx_ev.send(GuiEvent::ReceiveStatusUpdate(
+                                            ReceiveState::Receiving {
+                                                progress: if total > 0 {
+                                                    (received as f32 / total as f32) * 100.0
+                                                } else {
+                                                    0.0
+                                                },
+                                                file_name: "正在接收...".to_string(),
                                             },
-                                            file_name: "正在接收...".to_string(),
-                                        },
-                                    ));
+                                        ));
+                                    }
+                                    ReceiveEvent::Complete(files) => {
+                                        tx_ev.send(GuiEvent::ReceiveStatusUpdate(
+                                            ReceiveState::Completed { files },
+                                        ));
+                                    }
+                                    ReceiveEvent::Error(e) => tx_ev.send(
+                                        GuiEvent::ReceiveStatusUpdate(ReceiveState::Error(e)),
+                                    ),
+                                    _ => {}
                                 }
-                                ReceiveEvent::Complete(files) => {
-                                    tx_ev.send(GuiEvent::ReceiveStatusUpdate(
-                                        ReceiveState::Completed { files },
-                                    ));
-                                }
-                                ReceiveEvent::Error(e) => tx_ev
-                                    .send(GuiEvent::ReceiveStatusUpdate(ReceiveState::Error(e))),
-                                _ => {}
                             }
-                        }
-                    });
-                    let _ = receiver.start(&callback).await;
+                        });
+
+                        let _ = receiver.start(&callback).await;
+                    }
+                    Err(e) => {
+                        tx.send(GuiEvent::Error(format!("无法启动接收器: {}", e)));
+                        tx.send(GuiEvent::ReceiveStatusUpdate(ReceiveState::Error(format!(
+                            "初始化失败: {}",
+                            e
+                        ))));
+                    }
                 }
             });
+
+            // 保存任务句柄
+            active_receive_task.set(Some(handle));
+        } else {
+            // 切换到其他模式时，清除任务引用（Task drop时会取消）
+            active_receive_task.set(None);
+            receive_state.set(ReceiveState::Idle);
+            event_handler.send(GuiEvent::Log(LogLevel::Info, "已停止接收模式".to_string()));
+            mode.set(new_mode);
         }
     };
 
@@ -381,7 +435,7 @@ pub fn App() -> Element {
                 },
                 AppMode::Receiving => rsx! {
                     div { class: "bento-tile", style: "grid-column: span 12; display: flex; flex-direction: column; min-height: 500px;",
-                        div { class: "card-header", h2 { "📥 接收模式" } button { class: "btn btn-secondary", onclick: move |_| { mode.set(AppMode::Home); receive_state.set(ReceiveState::Idle); }, "停止" } }
+                        div { class: "card-header", h2 { "📥 接收模式" } button { class: "btn btn-secondary", onclick: move |_| on_mode_change(AppMode::Home), "停止" } }
                         div {
                             style: "padding: 32px; text-align: center; background: white; border: 3px solid black; margin-bottom: 24px;",
                             match receive_state.read().clone() {
