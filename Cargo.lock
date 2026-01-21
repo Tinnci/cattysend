@@ -408,8 +408,7 @@ dependencies = [
 [[package]]
 name = "bluer"
 version = "0.17.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af68112f5c60196495c8b0eea68349817855f565df5b04b2477916d09fb1a901"
+source = "git+https://github.com/Tinnci/bluer.git?branch=feature%2Fscan-response-data#20a0423c723304c0fee0258acf38890e1fe59ef7"
 dependencies = [
  "custom_debug",
  "dbus",
