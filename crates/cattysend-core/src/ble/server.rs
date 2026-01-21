@@ -252,7 +252,8 @@ impl GattServer {
         let mut service_uuids = BTreeSet::new();
         service_uuids.insert(ADV_SERVICE_UUID);
 
-        // 构造身份数据
+        // ========== 主广播包数据 (31 bytes max) ==========
+        // 构造身份数据 (Service Data, 约 10 bytes)
         let flag_5ghz: u8 = if self.supports_5ghz { 0x01 } else { 0x00 };
         let brand = self.brand_id.id();
         let capability_short = ((flag_5ghz as u16) << 8) | (brand as u16);
@@ -267,11 +268,40 @@ impl GattServer {
         let mut service_data = std::collections::BTreeMap::new();
         service_data.insert(ident_uuid, ident_payload);
 
+        // ========== 扫描响应包数据 (31 bytes max) ==========
+        // 构造 Name Service Data (27 bytes)
+        // CatShare 格式:
+        //   Byte 0-7:   协议头 (固定为 0)
+        //   Byte 8-9:   Sender ID (与 random_data 相同)
+        //   Byte 10-25: 设备名 (UTF-8, 最多 16 字节, null 填充)
+        //   Byte 26:    协议尾 (0)
+        let mut name_payload = vec![0u8; 27];
+        // 设置 Sender ID (byte 8-9)
+        name_payload[8] = random_data[0];
+        name_payload[9] = random_data[1];
+        // 设置设备名 (byte 10-25, 最多 16 字节)
+        let name_bytes = self.device_name.as_bytes();
+        let name_len = name_bytes.len().min(16);
+        name_payload[10..10 + name_len].copy_from_slice(&name_bytes[..name_len]);
+        // 如果名字被截断，添加 tab 字符标记 (CatShare 会显示 "...")
+        if name_bytes.len() > 16 {
+            name_payload[25] = b'\t';
+        }
+
+        // Name Service Data 使用 UUID 0xFFFF (标准蓝牙基底)
+        let name_uuid = uuid::Uuid::from_u128(0x0000_ffff_0000_1000_8000_0080_5f9b_34fb_u128);
+        let mut scan_response_service_data = std::collections::BTreeMap::new();
+        scan_response_service_data.insert(name_uuid, name_payload);
+
         let adv = Advertisement {
             advertisement_type: bluer::adv::Type::Peripheral,
             service_uuids,
             service_data,
-            local_name: Some(self.device_name.clone()),
+            // ⭐ 使用 scan_response_service_data 而不是 local_name
+            // 这需要 BlueZ experimental 功能 (Experimental = true in /etc/bluetooth/main.conf)
+            scan_response_service_data,
+            // 不再使用 local_name，因为 CatShare 不读取它
+            // local_name: Some(self.device_name.clone()),
             discoverable: Some(true),
             // 关键: secondary_channel: None 强制 Legacy Advertising
             // 不设置辅助信道 = 使用主信道 = Legacy PDUs
