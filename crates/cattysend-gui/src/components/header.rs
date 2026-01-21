@@ -23,7 +23,7 @@ pub fn Header(status: TransferStatus) -> Element {
 
     rsx! {
         div { class: "logo",
-            h1 { "CATTYSEND 2026" }
+            h1 { "CATTYSEND" }
         }
 
         div { class: "{status_class}",

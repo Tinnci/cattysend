@@ -475,13 +475,14 @@ pub fn App() -> Element {
                     }
                 },
                 AppMode::Receiving => rsx! {
-                    div { class: "bento-tile", style: "grid-column: span 12; display: flex; flex-direction: column; min-height: 500px;",
+                    div { class: "bento-tile", style: "grid-column: span 12; display: flex; flex-direction: column; overflow: hidden;",
                         div { class: "card-header", h2 { "📥 接收模式" } button { class: "btn btn-secondary", onclick: move |_| on_mode_change(AppMode::Home), "停止" } }
+                        div { class: "receive-wrapper",
                             match receive_state.read().clone() {
                                 ReceiveState::Idle | ReceiveState::Starting => rsx! {
                                     div { class: "receive-container",
                                         div { class: "spinner" }
-                                        div { class: "status-pill", "正在初始化..." }
+                                        div { class: "status-pill", "正在初始化服务..." }
                                     }
                                 },
                                 ReceiveState::Advertising { device_name } => rsx! {
@@ -493,26 +494,26 @@ pub fn App() -> Element {
                                             div { class: "radar-emitter", "📡" }
                                         }
                                         div { class: "status-pill",
-                                            span { style: "color: var(--secondary);", "●" }
-                                            "等待连接: {device_name}"
+                                            span { style: "color: var(--secondary); font-size: 24px; line-height: 0;", "●" }
+                                            span { "等待连接: {device_name}" }
                                         }
-                                        p { style: "margin-top: 12px; font-size: 14px; opacity: 0.7;", "请在其他设备上选择此设备进行发送" }
+                                        p { style: "margin-top: 16px; font-weight: 500; color: #64748B;", "在发送端选择此设备即可开始传输" }
                                     }
                                 },
                                 ReceiveState::Connecting { ssid } => rsx! {
                                     div { class: "receive-container",
-                                        div { class: "spinner", style: "border-color: var(--accent); border-top-color: transparent;" }
+                                        div { class: "spinner", style: "border-color: #cbd5e1; border-top-color: var(--accent);" }
                                         div { class: "status-pill", "正在连接到 Wi-Fi: {ssid}" }
                                     }
                                 },
                                 ReceiveState::Receiving { progress, file_name } => rsx! {
                                     div { class: "receive-container",
                                         div { class: "rx-file-card",
-                                            div { style: "display: flex; align-items: center;",
+                                            div { class: "rx-file-header",
                                                 div { class: "rx-file-icon", "📥" }
-                                                div {
-                                                    div { style: "font-weight: 800; font-size: 18px;", "{file_name}" }
-                                                    div { style: "font-size: 14px; opacity: 0.7;", "接收中..." }
+                                                div { class: "rx-file-details",
+                                                    div { class: "rx-file-name", "{file_name}" }
+                                                    div { class: "rx-file-status", "正在高速接收中..." }
                                                 }
                                             }
                                             div { class: "progress-container",
@@ -524,12 +525,13 @@ pub fn App() -> Element {
                                 },
                                 ReceiveState::Completed { files } => rsx! {
                                     div { class: "receive-container",
-                                        div { class: "radar-emitter", style: "background: var(--success); font-size: 40px;", "🎉" }
-                                        div { class: "status-pill", style: "border-color: var(--success);", "传输完成 ({files.len()} 个文件)" }
-                                        div { style: "margin-top: 16px; display: flex; flex-direction: column; gap: 8px;",
+                                        div { class: "radar-emitter", style: "background: var(--success); font-size: 36px; margin-bottom: 24px; animation: bounce-subtle 2s infinite;", "🎉" }
+                                        div { class: "status-pill", style: "border-color: var(--success); color: #166534; background: #f0fdf4;", "传输完成 ({files.len()} 个文件)" }
+                                        div { style: "margin-top: 24px; width: 100%; max-width: 400px; display: flex; flex-direction: column; gap: 10px;",
                                             for file in files {
-                                                div { style: "background: #f0fdf4; padding: 8px 16px; border: 1px solid var(--success); font-weight: 600;",
-                                                    "📄 {file.file_name().unwrap_or_default().to_string_lossy()}"
+                                                div { style: "background: white; padding: 12px 16px; border: 2px solid var(--border); font-weight: 600; display: flex; align-items: center; gap: 10px; box-shadow: 2px 2px 0px rgba(0,0,0,0.05);",
+                                                    span { "📄" }
+                                                    span { style: "overflow: hidden; text-overflow: ellipsis; white-space: nowrap;", "{file.file_name().unwrap_or_default().to_string_lossy()}" }
                                                 }
                                             }
                                         }
@@ -537,12 +539,14 @@ pub fn App() -> Element {
                                 },
                                 ReceiveState::Error(e) => rsx! {
                                     div { class: "receive-container", style: "border-color: var(--error); background: #fff1f2;",
-                                        div { style: "font-size: 48px;", "❌" }
+                                        div { style: "font-size: 64px; margin-bottom: 20px;", "❌" }
                                         div { class: "status-pill error", "{e}" }
+                                        p { style: "margin-top: 16px; width: 100%; text-align: center; color: var(--error);", "请检查网络或重试" }
                                     }
                                 },
                             }
-                        div { class: "receive-log", for log in filtered_logs.read().iter().rev().take(10) { p { "{log.level.icon()} {log.message}" } } }
+                            div { class: "receive-log", for log in filtered_logs.read().iter().rev().take(5) { p { "{log.level.icon()} {log.message}" } } }
+                        }
                     }
                 },
                 AppMode::Settings => {

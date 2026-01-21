@@ -57,6 +57,7 @@ body {
     grid-template-columns: repeat(12, 1fr);
     grid-auto-rows: minmax(100px, auto);
     gap: 20px;
+    min-width: 800px; /* Enforce minimum width as requested */
 }
 
 /* Boxes (Bento Tiles) */
@@ -277,62 +278,108 @@ h2 { font-size: 24px; font-weight: 800; margin-bottom: 16px; }
     text-transform: uppercase;
 }
 
-/* === Animations === */
+/* === Adaptive Layout & Responsiveness === */
+@media (max-width: 900px) {
+    .app-container {
+        grid-template-columns: repeat(6, 1fr);
+    }
+    /* Main layout adjustment for smaller screens */
+    .main-left, .main-right {
+        grid-column: span 6 !important;
+    }
+}
+
+@media (max-width: 600px) {
+    .app-container {
+        display: flex;
+        flex-direction: column;
+    }
+    .mode-tile {
+        grid-template-columns: 1fr;
+    }
+    .btn {
+        width: 100%;
+        justify-content: center;
+    }
+}
+
+/* === Refined Animations === */
 @keyframes pulse-ring {
-    0% { transform: scale(1); opacity: 0.8; }
-    100% { transform: scale(2.5); opacity: 0; }
+    0% { transform: scale(0.8); opacity: 0.8; border-width: 6px; }
+    50% { opacity: 0.5; }
+    100% { transform: scale(2.2); opacity: 0; border-width: 0px; }
 }
 
-@keyframes bounce {
+@keyframes bounce-subtle {
     0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-10px); }
+    50% { transform: translateY(-6px); }
 }
 
-@keyframes spin {
+@keyframes spin-ease {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
 }
 
-/* === Receiver UI Components === */
+@keyframes fade-in-up {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* === Optimized Receiver UI === */
+.receive-wrapper {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 500px; /* Base height assurance */
+}
+
 .receive-container {
-    padding: 40px;
-    background: white;
+    flex: 1; /* Fill available space */
+    width: 100%;
+    padding: 32px;
+    background: radial-gradient(circle at center, #ffffff 0%, #f8fafc 100%);
     border: 3px solid var(--border);
-    margin-bottom: 24px;
+    margin-bottom: 20px;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    min-height: 300px;
     position: relative;
     overflow: hidden;
-    box-shadow: var(--shadow);
+    box-shadow: inset 0 0 20px rgba(0,0,0,0.02);
+    /* Animation entry */
+    animation: fade-in-up 0.4s ease-out;
 }
 
-/* Radar / Broadcasting Effect */
+/* Radar / Broadcasting Effect - High Fidelity */
 .radar-box {
     position: relative;
-    width: 100px;
-    height: 100px;
+    width: 200px;
+    height: 200px;
     display: flex;
     justify-content: center;
     align-items: center;
-    margin-bottom: 24px;
+    margin-bottom: 32px;
 }
 
 .radar-emitter {
-    width: 60px;
-    height: 60px;
+    width: 64px;
+    height: 64px;
     background: var(--accent);
     border: 3px solid var(--border);
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 30px;
-    z-index: 10;
+    font-size: 32px;
+    z-index: 20;
     position: relative;
     box-shadow: 4px 4px 0px var(--border);
+    transition: transform 0.2s;
+}
+
+.radar-emitter:hover {
+    transform: scale(1.1);
 }
 
 .radar-ring {
@@ -340,64 +387,110 @@ h2 { font-size: 24px; font-weight: 800; margin-bottom: 16px; }
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: 60px;
-    height: 60px;
-    border: 4px solid var(--accent);
+    width: 64px;
+    height: 64px;
+    border: 2px solid var(--accent);
     border-radius: 50%;
     opacity: 0;
     box-sizing: border-box;
+    pointer-events: none;
+    z-index: 5; /* Ensure rings are below the emitter and text pills */
+    background: transparent; /* Ensure no accidental background covers content */
 }
 
 .radar-ring.animating {
-    animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+    animation: pulse-ring 2.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) infinite;
 }
 
 .radar-ring:nth-child(1) { animation-delay: 0s; }
-.radar-ring:nth-child(2) { animation-delay: 0.6s; }
-.radar-ring:nth-child(3) { animation-delay: 1.2s; }
+.radar-ring:nth-child(2) { animation-delay: 0.8s; }
+.radar-ring:nth-child(3) { animation-delay: 1.6s; }
 
-/* Status Text Badge */
+/* Status Text Badge - Modernized */
 .status-pill {
-    margin-top: 16px;
     background: white;
     border: 2px solid var(--border);
-    padding: 8px 16px;
+    padding: 10px 24px;
     font-weight: 800;
-    font-size: 18px;
-    display: flex;
+    font-size: 16px;
+    display: inline-flex;
     align-items: center;
-    gap: 8px;
-    box-shadow: 4px 4px 0px var(--border);
-    z-index: 10;
+    gap: 10px;
+    box-shadow: 4px 4px 0px rgba(0,0,0,0.1);
+    border-radius: 40px;
+    z-index: 30; /* Ensure text is always above effects */
+    transition: all 0.3s;
+    background: white; /* Ensure background is solid */
+    position: relative;
 }
 
-/* File Transfer Card */
+.status-pill:hover {
+    transform: translateY(-2px);
+    box-shadow: 4px 6px 0px rgba(0,0,0,0.15);
+}
+
+.status-pill.error {
+    border-color: var(--error);
+    color: var(--error);
+    background: #fffafa;
+}
+
+/* File Transfer Card - Adaptive */
 .rx-file-card {
     width: 100%;
-    max-width: 450px;
+    max-width: 500px;
     border: 3px solid var(--border);
     background: white;
-    padding: 16px;
+    padding: 24px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    box-shadow: 6px 6px 0px var(--border);
-    z-index: 10;
+    gap: 20px;
+    box-shadow: 8px 8px 0px var(--border);
+    z-index: 20;
+    position: relative;
+    /* Card Animation */
+    animation: fade-in-up 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.rx-file-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
 }
 
 .rx-file-icon {
-    font-size: 32px;
-    margin-right: 12px;
-    animation: bounce 1s infinite;
+    font-size: 40px;
+    animation: bounce-subtle 2s infinite ease-in-out;
 }
 
-/* Connecting Spinner */
+.rx-file-details {
+    flex: 1;
+    overflow: hidden;
+}
+
+.rx-file-name {
+    font-weight: 800;
+    font-size: 18px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 4px;
+}
+
+.rx-file-status {
+    font-size: 14px;
+    color: #64748B;
+    font-weight: 500;
+}
+
+/* Connecting Spinner - Smoother */
 .spinner {
-    width: 40px;
-    height: 40px;
-    border: 4px solid var(--border);
-    border-top: 4px solid var(--primary);
+    width: 48px;
+    height: 48px;
+    border: 5px solid #e2e8f0;
+    border-top: 5px solid var(--primary);
     border-radius: 50%;
-    animation: spin 1s linear infinite;
+    animation: spin-ease 1s cubic-bezier(0.55, 0.055, 0.675, 0.19) infinite;
+    margin-bottom: 24px;
 }
 "#;
