@@ -11,7 +11,8 @@ pub enum AppMode {
     Home,
     Sending,
     Receiving,
-    #[allow(dead_code)]
+    /// 设置模式。GUI 中通过模式切换进入。
+    #[expect(dead_code, reason = "设置界面功能规划中，将在后续版本实现")]
     Settings,
 }
 
@@ -36,17 +37,16 @@ pub enum TransferStatus {
         total: u64,
         file_name: String,
     },
-    #[allow(dead_code)]
     Completed {
         files: Vec<PathBuf>,
     },
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "错误处理功能保留，将在完善错误报告界面时使用")]
     Error(String),
 }
 
 impl TransferStatus {
     /// 获取进度百分比
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "reserved for UI progress bar display")]
     pub fn progress_percent(&self) -> Option<f32> {
         match self {
             TransferStatus::Transferring { current, total, .. } => {
@@ -61,7 +61,7 @@ impl TransferStatus {
     }
 
     /// 是否正在进行中
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "reserved for UI state checks")]
     pub fn is_busy(&self) -> bool {
         matches!(
             self,

@@ -57,3 +57,22 @@ dirs = "5"
 # TUI
 ratatui = "0.29"
 crossterm = "0.28"
+
+# 注意: 上游依赖警告
+# ashpd v0.8.1 (dioxus-desktop -> rfd 引入) 包含未来 Rust 版本会拒绝的代码
+# 这需要等待 dioxus 升级其 rfd 依赖来解决
+# 跟踪 Issue: https://github.com/PolyMeilex/rfd/issues/XXX
+
+[workspace.lints.clippy]
+# Rust 2026 最佳实践准备
+# 注意: allow_attributes 和 allow_attributes_without_reason 在未来版本可用
+# 当前使用基本的代码质量检查
+
+# 基本代码质量规则（使用较低优先级以允许覆盖）
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+
+# 允许一些过于严格的规则以保持实用性
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"

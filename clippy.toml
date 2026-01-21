@@ -1,0 +1,20 @@
+# Clippy 配置文件
+# 
+# 此配置为 Rust 2026 最佳实践做准备，确保代码质量和可维护性。
+
+# 注意：以下配置选项在未来的 Rust 版本中可用
+# 
+# allow-attributes (计划在 Rust 1.81+ 中可用)
+# 强制将所有 #[allow] 升级为 #[expect]，确保没有失效的抑制规则
+# allow-attributes = "warn"
+#
+# allow-attributes-without-reason (计划在 Rust 1.81+ 中可用)
+# 强制所有抑制属性必须附带 reason 解释，对团队协作和长期维护至关重要
+# allow-attributes-without-reason = "warn"
+
+# 当前可用的配置
+# 设置最小标识符长度阈值
+min-ident-chars-threshold = 2
+
+# MSRV (最小支持的 Rust 版本)
+msrv = "1.81"

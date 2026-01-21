@@ -62,6 +62,12 @@ cargo build --release
 - `cattysend-tui`: 终端用户界面（推荐）
 - `cattysend-cli`: 命令行工具
 
+## 开发者文档
+
+如果您计划为 `cattysend` 贡献代码，请阅读以下文档：
+- [Rust 2026 最佳实践](docs/RUST_BEST_PRACTICES_2026.md) - 了解项目采用的代码质量标准
+- [贡献指南](CONTRIBUTING.md)
+
 ## 致谢
 
 深切感谢 **CatShare** 的开发者们对 MTA 协议的初步研究。本项目愿作为 Linux 终端社区的一个补充实现，与各位共勉。
@@ -133,6 +139,12 @@ The resulting binaries will be located in `target/release/`:
 - `cattysend-core`: Core library
 - `cattysend-tui`: The terminal user interface (recommended)
 - `cattysend-cli`: Command line utility
+
+## Developer Documentation
+
+If you plan to contribute code to `cattysend`, please review the following documentation:
+- [Rust 2026 Best Practices](docs/RUST_BEST_PRACTICES_2026.md) - Learn about the code quality standards adopted by this project
+- [Contributing Guide](CONTRIBUTING.md)
 
 ## Acknowledgments
 
