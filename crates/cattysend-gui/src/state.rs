@@ -39,7 +39,6 @@ pub enum TransferStatus {
     Completed {
         files: Vec<PathBuf>,
     },
-    #[expect(dead_code, reason = "错误处理功能保留，将在完善错误报告界面时使用")]
     Error(String),
 }
 

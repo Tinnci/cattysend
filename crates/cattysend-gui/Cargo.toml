@@ -32,6 +32,9 @@ anyhow = { workspace = true }
 # Utilities
 hostname = { workspace = true }
 dirs = { workspace = true }
+rfd = "0.17.2"
+async-trait = "0.1.89"
+futures-util = "0.3"
 
 [features]
 default = []
