@@ -46,8 +46,7 @@ impl Default for P2pReceiverConfig {
 /// 活动连接状态
 struct ActiveConnection {
     connection_name: String,
-    #[allow(dead_code)]
-    connection_path: Option<String>,
+    _connection_path: Option<String>,
     used_p2p_mode: bool,
 }
 
@@ -172,7 +171,7 @@ impl WiFiP2pReceiver {
         let mut active = self.active_connection.lock().await;
         *active = Some(ActiveConnection {
             connection_name: conn_name,
-            connection_path: Some(conn_path.to_string()),
+            _connection_path: Some(conn_path.to_string()),
             used_p2p_mode: false,
         });
 
@@ -219,7 +218,7 @@ impl WiFiP2pReceiver {
         let mut active = self.active_connection.lock().await;
         *active = Some(ActiveConnection {
             connection_name: info.ssid.clone(),
-            connection_path: None,
+            _connection_path: None,
             used_p2p_mode: false,
         });
 

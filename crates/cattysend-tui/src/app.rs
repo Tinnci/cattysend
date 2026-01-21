@@ -14,10 +14,10 @@ pub enum AppMode {
     Idle,
     Scanning,
     Receiving,
-    #[allow(dead_code)] // Planned for future file sending feature
     Sending,
     Transferring,
     Settings,
+    FileSelection,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -96,6 +96,120 @@ pub struct LogEntry {
     pub message: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct FileEntry {
+    pub name: String,
+    pub path: String,
+    pub is_dir: bool,
+}
+
+pub struct FileSelector {
+    pub current_path: std::path::PathBuf,
+    pub entries: Vec<FileEntry>,
+    pub selected: usize,
+}
+
+impl FileSelector {
+    pub fn new() -> Self {
+        let current_path =
+            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let mut selector = Self {
+            current_path,
+            entries: vec![],
+            selected: 0,
+        };
+        selector.refresh();
+        selector
+    }
+
+    pub fn refresh(&mut self) {
+        self.entries.clear();
+        // Add ".." for parent directory if not root
+        if self.current_path.parent().is_some() {
+            self.entries.push(FileEntry {
+                name: "..".to_string(),
+                path: "..".to_string(),
+                is_dir: true,
+            });
+        }
+
+        if let Ok(read_dir) = std::fs::read_dir(&self.current_path) {
+            let mut dirs = vec![];
+            let mut files = vec![];
+
+            for entry in read_dir.flatten() {
+                let path = entry.path();
+                let name = entry.file_name().to_string_lossy().to_string();
+                let is_dir = path.is_dir();
+
+                // Skip hidden files
+                if name.starts_with('.') {
+                    continue;
+                }
+
+                let entry = FileEntry {
+                    name,
+                    path: path.to_string_lossy().to_string(),
+                    is_dir,
+                };
+
+                if is_dir {
+                    dirs.push(entry);
+                } else {
+                    files.push(entry);
+                }
+            }
+
+            // Sort: Dirs first, then files
+            dirs.sort_by_key(|e| e.name.to_lowercase());
+            files.sort_by_key(|e| e.name.to_lowercase());
+
+            self.entries.extend(dirs);
+            self.entries.extend(files);
+        }
+
+        // Reset selection if out of bounds
+        if self.selected >= self.entries.len() {
+            self.selected = 0;
+        }
+    }
+
+    pub fn next(&mut self) {
+        if !self.entries.is_empty() {
+            self.selected = (self.selected + 1) % self.entries.len();
+        }
+    }
+
+    pub fn previous(&mut self) {
+        if !self.entries.is_empty() {
+            self.selected = self
+                .selected
+                .checked_sub(1)
+                .unwrap_or(self.entries.len() - 1);
+        }
+    }
+
+    /// Returns: Some(path) if a file was selected, None if directory was entered
+    pub fn enter(&mut self) -> Option<String> {
+        if let Some(entry) = self.entries.get(self.selected) {
+            if entry.name == ".." {
+                if let Some(parent) = self.current_path.parent() {
+                    self.current_path = parent.to_path_buf();
+                    self.selected = 0;
+                    self.refresh();
+                }
+            } else if entry.is_dir {
+                self.current_path.push(&entry.name);
+                self.selected = 0;
+                self.refresh();
+            } else {
+                return Some(entry.path.clone());
+            }
+        }
+        None
+    }
+}
+
 pub struct App {
     pub mode: AppMode,
     pub tab: Tab,
@@ -128,6 +242,12 @@ pub struct App {
     pub settings: AppSettings,
     /// 用于编辑设置的临时缓冲区
     pub input_buffer: String,
+
+    // 文件选择器
+    pub file_selector: FileSelector,
+
+    // 当前状态消息 (用于 UI 显示)
+    pub status_message: String,
 }
 
 impl App {
@@ -156,6 +276,8 @@ impl App {
             show_perm_warning: !has_nmcli || !has_net_raw,
             settings,
             input_buffer: String::new(),
+            file_selector: FileSelector::new(),
+            status_message: "就绪".to_string(),
         };
 
         // 添加初始消息
@@ -231,12 +353,14 @@ impl App {
             .find(|d| d.address == device_addr)
             .cloned();
 
+        let settings = self.settings.clone();
+
         if let Some(device) = device {
             let task = tokio::spawn(async move {
                 let options = SendOptions {
-                    wifi_interface: "wlan0".to_string(),
-                    use_5ghz: true,
-                    sender_name: "Cattysend-TUI".to_string(),
+                    wifi_interface: "wlan0".to_string(), // TODO: Auto-detect or config
+                    use_5ghz: settings.supports_5ghz,
+                    sender_name: settings.device_name.clone(),
                 };
 
                 // 1. 创建回调和接收通道
@@ -397,6 +521,7 @@ impl App {
                 }
             }
             AppEvent::StatusUpdate(msg) => {
+                self.status_message = msg.clone();
                 self.add_log(LogLevel::Info, msg);
             }
             AppEvent::ProgressUpdate { sent, total } => {
@@ -496,24 +621,6 @@ impl App {
                 .selected_device
                 .checked_sub(1)
                 .unwrap_or(self.devices.len() - 1);
-        }
-    }
-
-    pub fn select_device(&mut self) {
-        if let Some(device) = self.devices.get(self.selected_device) {
-            self.add_log(
-                LogLevel::Info,
-                format!("选中设备: {} ({})", device.name, device.address),
-            );
-            // 提示用户如何发送文件
-            self.add_log(
-                LogLevel::Info,
-                "💡 使用方法: cargo run -p cattysend-tui <文件路径>".to_string(),
-            );
-            self.add_log(
-                LogLevel::Info,
-                "   然后按 Enter 发送到选中的设备".to_string(),
-            );
         }
     }
 

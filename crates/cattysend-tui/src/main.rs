@@ -142,6 +142,25 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> Result
                     }
                     _ => {}
                 },
+                app::AppMode::FileSelection => match key.code {
+                    KeyCode::Esc => app.mode = app::AppMode::Idle,
+                    KeyCode::Up | KeyCode::Char('k') => app.file_selector.previous(),
+                    KeyCode::Down | KeyCode::Char('j') => app.file_selector.next(),
+                    KeyCode::Enter => {
+                        if let Some(path) = app.file_selector.enter() {
+                            app.set_file_to_send(path.clone());
+                            app.mode = app::AppMode::Idle;
+
+                            // Trigger send immediately if we have a valid device selected
+                            // This creates a smoother flow: Enter on Device -> Select File -> Auto Send
+                            // We need to check if we can send.
+                            if let Some(device) = app.devices.get(app.selected_device).cloned() {
+                                app.run_sender(device.address.clone(), path);
+                            }
+                        }
+                    }
+                    _ => {}
+                },
                 _ => match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => {
                         return Ok(());
@@ -159,13 +178,23 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> Result
                     KeyCode::Up | KeyCode::Char('k') => app.previous_device(),
                     KeyCode::Down | KeyCode::Char('j') => app.next_device(),
                     KeyCode::Enter => {
-                        // Check if we have a file to send and a valid device selected
+                        // Enter Logic priority:
+                        // 1. If file is ready -> Send
+                        // 2. If NO file -> Enter File Selection
                         if let Some(file_path) = app.file_to_send.clone() {
                             if let Some(device) = app.devices.get(app.selected_device).cloned() {
                                 app.run_sender(device.address.clone(), file_path);
+                            } else {
+                                app.add_log(app::LogLevel::Warn, "无效的设备选择".to_string());
                             }
                         } else {
-                            app.select_device();
+                            // Only allow file selection if we have devices to send to,
+                            // or generally allow it to set the file?
+                            // Generally allowing it is better UX.
+                            app.mode = app::AppMode::FileSelection;
+                            app.file_selector.refresh();
+                            app.status_message = "选择文件".to_string();
+                            app.add_log(app::LogLevel::Info, "进入文件选择模式...".to_string());
                         }
                     }
                     KeyCode::Tab => app.next_tab(),

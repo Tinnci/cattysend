@@ -3,7 +3,11 @@
 //! 现代化的深色主题 GUI 样式
 
 //! 主题颜色
-#[allow(dead_code)]
+//!
+//! 这些常量保留用于未来的动态主题切换功能。
+//! 当前 GLOBAL_CSS 使用硬编码值，但这些常量为未来的 Rust 端主题逻辑
+//! 提供了一致的颜色定义参考。
+#[expect(dead_code, reason = "reserved for future dynamic theming")]
 pub mod colors {
     pub const PRIMARY: &str = "#6366f1"; // Indigo
     pub const PRIMARY_HOVER: &str = "#4f46e5";

@@ -45,8 +45,7 @@ impl Default for P2pConfig {
 /// 活动连接信息（用于清理）
 struct ActiveHotspot {
     connection_name: String,
-    #[allow(dead_code)]
-    connection_path: Option<String>,
+    _connection_path: Option<String>,
 }
 
 pub struct WiFiP2pSender {
@@ -196,7 +195,7 @@ impl WiFiP2pSender {
         let mut hotspot = self.active_hotspot.lock().await;
         *hotspot = Some(ActiveHotspot {
             connection_name: conn_name,
-            connection_path: Some(conn_path.to_string()),
+            _connection_path: Some(conn_path.to_string()),
         });
 
         Ok(())
@@ -225,7 +224,7 @@ impl WiFiP2pSender {
         let mut hotspot = self.active_hotspot.lock().await;
         *hotspot = Some(ActiveHotspot {
             connection_name: ssid.to_string(),
-            connection_path: None,
+            _connection_path: None,
         });
 
         Ok(())

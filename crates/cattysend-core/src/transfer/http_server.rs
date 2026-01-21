@@ -11,8 +11,8 @@ use tokio::fs::File;
 
 #[derive(Deserialize)]
 pub struct DownloadQuery {
-    #[allow(dead_code)]
-    pub task_id: String,
+    #[serde(rename = "task_id")]
+    pub _task_id: String,
 }
 
 pub struct AppState {

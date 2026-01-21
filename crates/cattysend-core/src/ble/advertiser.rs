@@ -16,15 +16,15 @@ use tokio::sync::Mutex;
 
 pub struct BleAdvertiser {
     device_info: Arc<Mutex<String>>,
-    #[allow(dead_code)]
-    p2p_data_tx: tokio::sync::mpsc::Sender<Vec<u8>>,
+    /// Reserved for future P2P write functionality
+    _p2p_data_tx: tokio::sync::mpsc::Sender<Vec<u8>>,
 }
 
 impl BleAdvertiser {
     pub fn new(p2p_data_tx: tokio::sync::mpsc::Sender<Vec<u8>>) -> Self {
         Self {
             device_info: Arc::new(Mutex::new(String::new())),
-            p2p_data_tx,
+            _p2p_data_tx: p2p_data_tx,
         }
     }
 

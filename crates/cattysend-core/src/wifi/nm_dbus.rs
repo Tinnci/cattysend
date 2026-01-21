@@ -37,13 +37,7 @@ use zbus::Connection;
 use zbus::proxy;
 use zbus::zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Value};
 
-// NetworkManager D-Bus 常量 (保留供文档参考)
-#[allow(dead_code)]
-const NM_BUS_NAME: &str = "org.freedesktop.NetworkManager";
-#[allow(dead_code)]
-const NM_OBJECT_PATH: &str = "/org/freedesktop/NetworkManager";
-#[allow(dead_code)]
-const NM_SETTINGS_PATH: &str = "/org/freedesktop/NetworkManager/Settings";
+// NetworkManager D-Bus 路径由 zbus proxy 宏自动处理
 
 /// NetworkManager 主接口代理
 #[proxy(

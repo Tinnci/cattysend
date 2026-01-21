@@ -2,7 +2,7 @@
 
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Gauge, List, ListItem, Paragraph, Tabs, Wrap},
+    widgets::{Block, Borders, Gauge, List, ListItem, ListState, Paragraph, Tabs, Wrap},
 };
 
 use crate::app::{App, AppMode, Tab};
@@ -131,6 +131,11 @@ fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
 fn draw_main(frame: &mut Frame, app: &App, area: Rect) {
     if app.mode == AppMode::Settings {
         draw_settings(frame, app, area);
+        return;
+    }
+
+    if app.mode == AppMode::FileSelection {
+        draw_file_selection(frame, app, area);
         return;
     }
 
@@ -273,10 +278,10 @@ fn draw_transfer_tab(frame: &mut Frame, app: &App, area: Rect) {
 
     // File info
     let file_info = match app.mode {
-        AppMode::Transferring => "正在传输: document.pdf (10.5 MB)",
-        AppMode::Sending => "准备发送...",
-        AppMode::Receiving => "等待接收...",
-        _ => "无活动传输",
+        AppMode::Transferring => format!("正在传输... {}", app.status_message),
+        AppMode::Sending => format!("发送模式: {}", app.status_message),
+        AppMode::Receiving => format!("接收模式: {}", app.status_message),
+        _ => "无活动传输".to_string(),
     };
 
     let info =
@@ -312,11 +317,13 @@ fn draw_status_bar(frame: &mut Frame, app: &App, area: Rect) {
         AppMode::Sending => " 📤 发送中 ",
         AppMode::Transferring => " 🔄 传输中 ",
         AppMode::Settings => " ⚙️ 设置中 ",
+        AppMode::FileSelection => " 📂 选择文件 ",
     };
 
     let status = Paragraph::new(format!(
-        "{}│ 设备: {} │ [s]扫描 [r]接收 [p]设置 [Tab]切换 [q]退出",
+        "{}│ {} │ 设备: {} │ [s]扫描 [r]接收 [p]设置 [Tab]切换 [q]退出",
         mode_text,
+        app.status_message,
         app.devices.len()
     ))
     .block(Block::default().borders(Borders::ALL));
@@ -361,4 +368,61 @@ fn get_brand_name(id: u16) -> String {
         _ => "Unknown",
     }
     .to_string()
+}
+
+fn draw_file_selection(frame: &mut Frame, app: &App, area: Rect) {
+    let block = Block::default()
+        .title(format!(
+            " 📂 选择文件 - {} ",
+            app.file_selector.current_path.to_string_lossy()
+        ))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan));
+
+    let items: Vec<ListItem> = app
+        .file_selector
+        .entries
+        .iter()
+        .enumerate()
+        .map(|(i, entry)| {
+            let icon = if entry.is_dir { "📁" } else { "📄" };
+            let style = if i == app.file_selector.selected {
+                Style::default()
+                    .bg(Color::DarkGray)
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD)
+            } else if entry.is_dir {
+                Style::default().fg(Color::Blue)
+            } else {
+                Style::default()
+            };
+
+            ListItem::new(format!("{} {}", icon, entry.name)).style(style)
+        })
+        .collect();
+
+    let list = List::new(items)
+        .block(block)
+        .highlight_style(Style::default().add_modifier(Modifier::BOLD));
+
+    // Calculate scroll state to keep selected item in view
+    // Since List doesn't manage internal state implicitly without a StatefulWidget,
+    // we just rely on the list rendering. To ensure the selected item is visible,
+    // we would typically use a ListState. But here we are just redrawing.
+    // Ratatui's List will start from top.
+
+    // To properly scroll, we need a ListState or control the offset.
+    // For simplicity in this `draw` function (which is stateless), we can't easily auto-scroll
+    // without passing a mutable State.
+    // However, Ratatui's `List` widget usually works with `Frame::render_stateful_widget`.
+    // Since `app` holds the state index, but not a `ListState`, we can construct one temporarily
+    // or just render the list roughly centered if we wanted, but sticking to basic List is easiest.
+    // Wait, the standard `List` in Ratatui renders all items if they fit, or clips them.
+    // Without `render_stateful_widget`, we can't scroll.
+
+    // Let's use `render_stateful_widget` and create a `ListState` on the fly.
+    let mut state = ListState::default();
+    state.select(Some(app.file_selector.selected));
+
+    frame.render_stateful_widget(list, area, &mut state);
 }
