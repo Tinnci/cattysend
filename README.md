@@ -26,6 +26,12 @@
 | **界面** | CLI 前端 | 🚧 Alpha | 基础命令可用 |
 | **界面** | TUI 前端 | 🚧 Alpha | 交互逻辑完善中 |
 
+### 重要提示：设备发现与名称显示
+为了让您的 Linux 设备在 Android 手机上能够正确显示设备名称（而非空值），**必须**启用 BlueZ 的实验性功能。这是因为互传联盟协议需要精细控制扫描响应包 (Scan Response) 的内容。
+
+请参考 [BlueZ 实验性功能配置指南](docs/BLUEZ_EXPERIMENTAL.md) 进行设置。
+
+
 ## 技术架构与限制说明
 
 ### "无 Sudo" 哲学
@@ -91,6 +97,12 @@ The project is currently in an active **Work in Progress (WIP)** state. While th
 | **Transport** | Wi-Fi Direct (P2P) | ✅ Done | Managed via NetworkManager |
 | **Interface** | CLI Frontend | 🚧 Alpha | Basic commands working |
 | **Interface** | TUI Frontend | 🚧 Alpha | Interactive selection pending |
+
+### Important Tip: Device Discovery & Name Display
+To ensure your Linux device displays its name correctly on mobile devices (instead of appearing empty), you **must** enable BlueZ experimental features. This is required for precise control over Scan Response packets as per the MTA protocol.
+
+Please refer to the [BlueZ Experimental Features Guide](docs/BLUEZ_EXPERIMENTAL.md) for setup instructions.
+
 
 ## Technical Architecture & Constraints
 
