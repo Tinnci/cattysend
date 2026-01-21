@@ -22,6 +22,8 @@ pub struct DiscoveredDeviceInfo {
     pub address: String,
     pub rssi: i16,
     pub brand: Option<String>,
+    pub sender_id: String,
+    pub supports_5ghz: bool,
 }
 
 /// 传输状态
@@ -59,7 +61,6 @@ impl TransferStatus {
     }
 
     /// 是否正在进行中
-    #[expect(dead_code, reason = "reserved for UI state checks")]
     pub fn is_busy(&self) -> bool {
         matches!(
             self,

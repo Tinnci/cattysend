@@ -97,6 +97,7 @@ pub fn App() -> Element {
 
     // === 任务管理 ===
     let mut active_receive_task = use_signal(|| Option::<dioxus::prelude::Task>::None);
+    let mut active_send_task = use_signal(|| Option::<dioxus::prelude::Task>::None);
 
     // === 权限检查 ===
     let permissions = use_signal(|| {
@@ -116,6 +117,8 @@ pub fn App() -> Element {
                                 address: device.address.clone(),
                                 rssi: device.rssi.unwrap_or(-100),
                                 brand: device.brand_id.map(|b| b.to_string()),
+                                sender_id: device.sender_id.clone(),
+                                supports_5ghz: device.supports_5ghz,
                             });
                         }
                     });
@@ -216,6 +219,15 @@ pub fn App() -> Element {
 
     // === 发送逻辑 ===
     let on_send = move |_| {
+        // 检查是否正在传输中
+        if status.read().is_busy() {
+            event_handler.send(GuiEvent::Log(
+                LogLevel::Warn,
+                "正在传输中，请等待完成".to_string(),
+            ));
+            return;
+        }
+
         if let (Some(addr), false) = (
             selected_device.read().clone(),
             selected_files.read().is_empty(),
@@ -226,8 +238,17 @@ pub fn App() -> Element {
             let device_info = devices.read().iter().find(|d| d.address == *addr).cloned();
 
             if let Some(dev) = device_info {
+                // 清除之前的发送任务
+                active_send_task.set(None);
+
                 status.set(TransferStatus::Connecting);
-                spawn(async move {
+
+                event_handler.send(GuiEvent::Log(
+                    LogLevel::Info,
+                    format!("正在连接设备: {} ({})", dev.name, dev.address),
+                ));
+
+                let handle = spawn(async move {
                     let options = SendOptions {
                         wifi_interface: "wlan0".to_string(),
                         use_5ghz: current_settings.supports_5ghz,
@@ -274,18 +295,36 @@ pub fn App() -> Element {
                     });
 
                     let target = DiscoveredDevice {
-                        address: dev.address,
-                        name: dev.name,
+                        address: dev.address.clone(),
+                        name: dev.name.clone(),
                         rssi: Some(dev.rssi),
                         brand_id: dev.brand.and_then(|b| b.parse().ok()),
-                        sender_id: String::new(),
-                        supports_5ghz: false,
+                        sender_id: dev.sender_id.clone(),
+                        supports_5ghz: dev.supports_5ghz,
                     };
 
-                    if let Ok(sender) = Sender::new(options) {
-                        let _ = sender.send_to_device(&target, files, &callback).await;
+                    match Sender::new(options) {
+                        Ok(sender) => {
+                            match sender.send_to_device(&target, files, &callback).await {
+                                Ok(_) => {
+                                    tx.send(GuiEvent::Log(
+                                        LogLevel::Info,
+                                        "文件发送完成".to_string(),
+                                    ));
+                                }
+                                Err(e) => {
+                                    tx.send(GuiEvent::Error(format!("发送失败: {}", e)));
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            tx.send(GuiEvent::Error(format!("无法初始化发送器: {}", e)));
+                        }
                     }
                 });
+
+                // 保存任务句柄
+                active_send_task.set(Some(handle));
             }
         }
     };
