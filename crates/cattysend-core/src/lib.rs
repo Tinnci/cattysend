@@ -55,12 +55,16 @@
 pub mod ble;
 pub mod config;
 pub mod crypto;
+pub mod logging;
 pub mod transfer;
 pub mod wifi;
 pub mod workflow;
 
 // Config re-exports
 pub use config::{AppSettings, BrandId};
+
+// Logging re-exports
+pub use logging::{LogEntry, LogLevel};
 
 // BLE re-exports
 pub use ble::{

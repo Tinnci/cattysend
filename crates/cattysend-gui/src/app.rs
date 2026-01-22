@@ -13,8 +13,9 @@ use crate::state::{AppMode, DiscoveredDeviceInfo, TransferStatus};
 use crate::styles::GLOBAL_CSS;
 
 use cattysend_core::{
-    AppSettings, BleScanner, BrandId, DiscoveredDevice, ReceiveEvent, ReceiveOptions, Receiver,
-    ScanCallback, SendEvent, SendOptions, Sender, SimpleReceiveCallback, SimpleSendCallback,
+    AppSettings, BleScanner, BrandId, DiscoveredDevice, LogEntry, LogLevel, ReceiveEvent,
+    ReceiveOptions, Receiver, ScanCallback, SendEvent, SendOptions, Sender, SimpleReceiveCallback,
+    SimpleSendCallback,
 };
 
 /// 异步事件，用于从后台任务更新 UI
@@ -49,34 +50,6 @@ pub enum ReceiveState {
         files: Vec<PathBuf>,
     },
     Error(String),
-}
-
-/// 日志级别
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum LogLevel {
-    Error = 0,
-    Warn = 1,
-    Info = 2,
-    #[expect(dead_code, reason = "保留用于未来调试级别日志")]
-    Debug = 3,
-}
-
-/// 日志条目
-#[derive(Debug, Clone, PartialEq)]
-struct LogEntry {
-    level: LogLevel,
-    message: String,
-}
-
-impl LogLevel {
-    fn icon(&self) -> &'static str {
-        match self {
-            LogLevel::Error => "❌",
-            LogLevel::Warn => "⚠️",
-            LogLevel::Info => "ℹ️",
-            LogLevel::Debug => "🔍",
-        }
-    }
 }
 
 /// 主应用
@@ -546,28 +519,7 @@ pub fn App() -> Element {
 
                 AppMode::Settings => {
                     let s = settings.read();
-                    let brands = vec![
-                        (BrandId::Xiaomi, "Xiaomi"),
-                        (BrandId::BlackShark, "Black Shark"),
-                        (BrandId::Vivo, "Vivo"),
-                        (BrandId::Oppo, "OPPO"),
-                        (BrandId::Realme, "realme"),
-                        (BrandId::OnePlus, "OnePlus"),
-                        (BrandId::Honor, "Honor"),
-                        (BrandId::Meizu, "Meizu"),
-                        (BrandId::Samsung, "Samsung"),
-                        (BrandId::Lenovo, "Lenovo"),
-                        (BrandId::Motorola, "Motorola"),
-                        (BrandId::ZTE, "ZTE"),
-                        (BrandId::Nubia, "Nubia"),
-                        (BrandId::Smartisan, "Smartisan"),
-                        (BrandId::Asus, "Asus"),
-                        (BrandId::ROG, "ROG"),
-                        (BrandId::Hisense, "Hisense"),
-                        (BrandId::NIO, "NIO"),
-                        (BrandId::Windows, "Windows PC"),
-                        (BrandId::Linux, "Linux (Generic)"),
-                    ];
+                    let brands = BrandId::all();
 
                     rsx! {
                         div { class: "bento-tile", style: "grid-column: span 12; display: flex; flex-direction: column; gap: 20px;",
@@ -597,11 +549,11 @@ pub fn App() -> Element {
                                                     settings.write().brand_id = BrandId::from_id(id);
                                                 }
                                             },
-                                            for (brand, label) in brands {
+                                            for brand in brands {
                                                 option {
                                                     value: "{brand.id()}",
-                                                    selected: s.brand_id == brand,
-                                                    "{label}"
+                                                    selected: s.brand_id == *brand,
+                                                    "{brand.name()}"
                                                 }
                                             }
                                         }

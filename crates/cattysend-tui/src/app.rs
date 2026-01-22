@@ -1,8 +1,8 @@
 //! Application state
 
-use cattysend_core::{
-    AppSettings, BleScanner, DiscoveredDevice, ReceiveEvent, ReceiveOptions, Receiver,
-    ScanCallback, SendOptions, Sender, SimpleReceiveCallback, SimpleSendCallback,
+pub use cattysend_core::{
+    AppSettings, BleScanner, DiscoveredDevice, LogEntry, LogLevel, ReceiveEvent, ReceiveOptions,
+    Receiver, ScanCallback, SendOptions, Sender, SimpleReceiveCallback, SimpleSendCallback,
 };
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -44,56 +44,6 @@ pub enum AppEvent {
         level: String,
         message: String,
     },
-}
-
-/// 日志级别过滤
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum LogLevel {
-    Error = 0,
-    Warn = 1,
-    Info = 2,
-    Debug = 3,
-    Trace = 4,
-}
-
-impl LogLevel {
-    pub fn from_str(s: &str) -> Self {
-        match s.to_uppercase().as_str() {
-            "ERROR" => LogLevel::Error,
-            "WARN" => LogLevel::Warn,
-            "INFO" => LogLevel::Info,
-            "DEBUG" => LogLevel::Debug,
-            "TRACE" => LogLevel::Trace,
-            _ => LogLevel::Info,
-        }
-    }
-
-    pub fn name(&self) -> &'static str {
-        match self {
-            LogLevel::Error => "ERROR",
-            LogLevel::Warn => "WARN",
-            LogLevel::Info => "INFO",
-            LogLevel::Debug => "DEBUG",
-            LogLevel::Trace => "TRACE",
-        }
-    }
-
-    pub fn icon(&self) -> &'static str {
-        match self {
-            LogLevel::Error => "❌",
-            LogLevel::Warn => "⚠️",
-            LogLevel::Info => "ℹ️",
-            LogLevel::Debug => "🔍",
-            LogLevel::Trace => "📝",
-        }
-    }
-}
-
-/// 带级别的日志条目
-#[derive(Debug, Clone)]
-pub struct LogEntry {
-    pub level: LogLevel,
-    pub message: String,
 }
 
 #[derive(Debug, Clone)]
@@ -544,7 +494,7 @@ impl App {
                 self.add_log(LogLevel::Error, msg);
             }
             AppEvent::LogMessage { level, message } => {
-                let log_level = LogLevel::from_str(&level);
+                let log_level = level.parse().unwrap_or(LogLevel::Info);
                 self.add_log(log_level, message);
             }
         }

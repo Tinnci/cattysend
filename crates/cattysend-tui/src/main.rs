@@ -133,23 +133,20 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> Result
                         app.settings_focus_brand = !app.settings_focus_brand;
                     }
                     KeyCode::Left | KeyCode::Right if app.settings_focus_brand => {
-                        // Simple cycling through common brand IDs
-                        let ids = [
-                            10, 11, 20, 30, 32, 41, 50, 60, 70, 80, 90, 100, 110, 120, 140, 161,
-                            170, 200, 4,
-                        ]; // Common Brand IDs including new ones
-                        let current_id = app.temp_brand_id.id();
+                        // Simple cycling through all available brand IDs
+                        let brands = cattysend_core::BrandId::all();
+                        let current_id = app.temp_brand_id;
 
                         // Find index
-                        let idx = ids.iter().position(|&x| x == current_id).unwrap_or(3); // Default to Xiaomi (30) if unknown
+                        let idx = brands.iter().position(|&x| x == current_id).unwrap_or(0);
 
                         let new_idx = if key.code == KeyCode::Left {
-                            if idx == 0 { ids.len() - 1 } else { idx - 1 }
+                            if idx == 0 { brands.len() - 1 } else { idx - 1 }
                         } else {
-                            (idx + 1) % ids.len()
+                            (idx + 1) % brands.len()
                         };
 
-                        app.temp_brand_id = cattysend_core::BrandId::from_id(ids[new_idx]);
+                        app.temp_brand_id = brands[new_idx];
                     }
                     KeyCode::Enter => {
                         // Save both name and brand

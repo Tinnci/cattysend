@@ -38,6 +38,33 @@ pub enum BrandId {
 }
 
 impl BrandId {
+    /// 获取所有支持的厂商列表
+    pub fn all() -> &'static [BrandId] {
+        &[
+            BrandId::Xiaomi,
+            BrandId::BlackShark,
+            BrandId::Vivo,
+            BrandId::Oppo,
+            BrandId::Realme,
+            BrandId::OnePlus,
+            BrandId::Honor,
+            BrandId::Meizu,
+            BrandId::Samsung,
+            BrandId::Lenovo,
+            BrandId::Motorola,
+            BrandId::ZTE,
+            BrandId::Nubia,
+            BrandId::Smartisan,
+            BrandId::Asus,
+            BrandId::ROG,
+            BrandId::Hisense,
+            BrandId::NIO,
+            BrandId::Windows,
+            BrandId::Linux,
+            BrandId::Unknown,
+        ]
+    }
+
     /// 获取厂商名称
     pub fn name(&self) -> &'static str {
         match self {
@@ -220,6 +247,27 @@ mod tests {
     fn test_brand_id() {
         assert_eq!(BrandId::Xiaomi.id(), 30);
         assert_eq!(BrandId::from_id(30).name(), "Xiaomi");
+    }
+
+    #[test]
+    fn test_brand_id_all_coverage() {
+        let all = BrandId::all();
+        // Check that essential brands are present
+        assert!(all.contains(&BrandId::Xiaomi));
+        assert!(all.contains(&BrandId::Oppo));
+        assert!(all.contains(&BrandId::Vivo));
+        assert!(all.contains(&BrandId::Honor));
+        assert!(all.contains(&BrandId::Windows));
+
+        // Ensure uniqueness
+        let mut sorted = all.to_vec();
+        sorted.sort_by_key(|b| b.id());
+        sorted.dedup();
+        assert_eq!(
+            sorted.len(),
+            all.len(),
+            "BrandId::all() contains duplicates"
+        );
     }
 
     #[test]
