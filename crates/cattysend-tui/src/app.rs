@@ -1,8 +1,9 @@
 //! Application state
 
 pub use cattysend_core::{
-    AppSettings, BleScanner, DiscoveredDevice, LogEntry, LogLevel, ReceiveEvent, ReceiveOptions,
-    Receiver, ScanCallback, SendOptions, Sender, SimpleReceiveCallback, SimpleSendCallback,
+    AppSettings, BleScanner, ChannelScanCallback, DiscoveredDevice, LogEntry, LogLevel,
+    ReceiveEvent, ReceiveOptions, Receiver, SendOptions, Sender, SimpleReceiveCallback,
+    SimpleSendCallback,
 };
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -427,18 +428,9 @@ impl App {
         let tx = self.event_tx.clone();
 
         // 扫面回调实现
-        struct TuiScanCallback {
-            tx: mpsc::Sender<AppEvent>,
-        }
-
-        #[async_trait::async_trait]
-        impl ScanCallback for TuiScanCallback {
-            async fn on_device_found(&self, device: DiscoveredDevice) {
-                let _ = self.tx.send(AppEvent::DeviceFound(device)).await;
-            }
-        }
-
-        let callback: Arc<dyn ScanCallback> = Arc::new(TuiScanCallback { tx: tx.clone() });
+        // 使用核心提供的通用回调
+        let callback = ChannelScanCallback::new(tx.clone(), AppEvent::DeviceFound);
+        let callback = Arc::new(callback);
 
         // 启动扫描任务
         tokio::spawn(async move {

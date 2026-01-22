@@ -132,6 +132,36 @@ pub trait ScanCallback: Send + Sync {
     async fn on_device_found(&self, device: DiscoveredDevice);
 }
 
+/// 通用的基于 Channel 的扫描回调
+///
+/// 将发现的设备转换为指定类型的事件并发送到 channel。
+pub struct ChannelScanCallback<F, T> {
+    tx: tokio::sync::mpsc::Sender<T>,
+    map_fn: F,
+}
+
+impl<F, T> ChannelScanCallback<F, T>
+where
+    F: Fn(DiscoveredDevice) -> T + Send + Sync,
+    T: Send,
+{
+    pub fn new(tx: tokio::sync::mpsc::Sender<T>, map_fn: F) -> Self {
+        Self { tx, map_fn }
+    }
+}
+
+#[async_trait]
+impl<F, T> ScanCallback for ChannelScanCallback<F, T>
+where
+    F: Fn(DiscoveredDevice) -> T + Send + Sync,
+    T: Send,
+{
+    async fn on_device_found(&self, device: DiscoveredDevice) {
+        let event = (self.map_fn)(device);
+        let _ = self.tx.send(event).await;
+    }
+}
+
 /// Parses raw byte sequences to find the "best" human-readable device name.
 /// Heuristically prefers strings containing known brand names.
 fn extract_ascii_name(data: &[u8]) -> Option<String> {

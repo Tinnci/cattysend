@@ -95,7 +95,7 @@ impl DeviceInfo {
 
 // Re-exports
 pub use client::BleClient;
-pub use scanner::{BleScanner, DiscoveredDevice, ScanCallback};
+pub use scanner::{BleScanner, ChannelScanCallback, DiscoveredDevice, ScanCallback};
 pub use server::{GattServer, GattServerHandle, P2pReceiveEvent};
 
 #[cfg(test)]

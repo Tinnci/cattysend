@@ -1,6 +1,5 @@
 //! 主应用组件
 
-use async_trait::async_trait;
 use dioxus::prelude::*;
 use futures_util::StreamExt;
 use std::path::PathBuf;
@@ -13,8 +12,8 @@ use crate::state::{AppMode, DiscoveredDeviceInfo, TransferStatus};
 use crate::styles::GLOBAL_CSS;
 
 use cattysend_core::{
-    AppSettings, BleScanner, BrandId, DiscoveredDevice, LogEntry, LogLevel, ReceiveEvent,
-    ReceiveOptions, Receiver, ScanCallback, SendEvent, SendOptions, Sender, SimpleReceiveCallback,
+    AppSettings, BleScanner, BrandId, ChannelScanCallback, DiscoveredDevice, LogEntry, LogLevel,
+    ReceiveEvent, ReceiveOptions, Receiver, SendEvent, SendOptions, Sender, SimpleReceiveCallback,
     SimpleSendCallback,
 };
 
@@ -139,15 +138,10 @@ pub fn App() -> Element {
 
         let tx_coroutine = event_handler;
         spawn(async move {
-            let (tx_mpsc, mut rx_mpsc) = mpsc::unbounded_channel();
+            let (tx_mpsc, mut rx_mpsc) = mpsc::channel(100);
 
-            struct GuiScanCallback(mpsc::UnboundedSender<GuiEvent>);
-            #[async_trait]
-            impl ScanCallback for GuiScanCallback {
-                async fn on_device_found(&self, device: DiscoveredDevice) {
-                    let _ = self.0.send(GuiEvent::DeviceFound(device));
-                }
-            }
+            // 使用核心提供的通用回调，消除样板代码
+            let callback = ChannelScanCallback::new(tx_mpsc, GuiEvent::DeviceFound);
 
             let tx_fwd = tx_coroutine;
             spawn(async move {
@@ -159,10 +153,7 @@ pub fn App() -> Element {
             match BleScanner::new().await {
                 Ok(scanner) => {
                     let _ = scanner
-                        .scan(
-                            Duration::from_secs(10),
-                            Some(Arc::new(GuiScanCallback(tx_mpsc))),
-                        )
+                        .scan(Duration::from_secs(10), Some(Arc::new(callback)))
                         .await;
                     tx_coroutine.send(GuiEvent::ScanFinished);
                 }

@@ -68,8 +68,8 @@ pub use logging::{LogEntry, LogLevel};
 
 // BLE re-exports
 pub use ble::{
-    ADV_SERVICE_UUID, BleClient, BleScanner, DeviceInfo, DiscoveredDevice, GattServer,
-    GattServerHandle, MAIN_SERVICE_UUID, P2P_CHAR_UUID, SERVICE_UUID, STATUS_CHAR_UUID,
+    ADV_SERVICE_UUID, BleClient, BleScanner, ChannelScanCallback, DeviceInfo, DiscoveredDevice,
+    GattServer, GattServerHandle, MAIN_SERVICE_UUID, P2P_CHAR_UUID, SERVICE_UUID, STATUS_CHAR_UUID,
     ScanCallback,
 };
 
