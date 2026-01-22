@@ -548,14 +548,24 @@ pub fn App() -> Element {
                     let s = settings.read();
                     let brands = vec![
                         (BrandId::Xiaomi, "Xiaomi"),
+                        (BrandId::BlackShark, "Black Shark"),
                         (BrandId::Vivo, "Vivo"),
                         (BrandId::Oppo, "OPPO"),
                         (BrandId::Realme, "realme"),
                         (BrandId::OnePlus, "OnePlus"),
+                        (BrandId::Honor, "Honor"),
                         (BrandId::Meizu, "Meizu"),
                         (BrandId::Samsung, "Samsung"),
-                        // (BrandId::Honor, "Honor"), // Honor not yet supported in core
                         (BrandId::Lenovo, "Lenovo"),
+                        (BrandId::Motorola, "Motorola"),
+                        (BrandId::ZTE, "ZTE"),
+                        (BrandId::Nubia, "Nubia"),
+                        (BrandId::Smartisan, "Smartisan"),
+                        (BrandId::Asus, "Asus"),
+                        (BrandId::ROG, "ROG"),
+                        (BrandId::Hisense, "Hisense"),
+                        (BrandId::NIO, "NIO"),
+                        (BrandId::Windows, "Windows PC"),
                         (BrandId::Linux, "Linux (Generic)"),
                     ];
 

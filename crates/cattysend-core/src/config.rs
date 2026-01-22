@@ -14,14 +14,25 @@ use std::path::PathBuf;
 pub enum BrandId {
     #[default]
     Unknown = 0,
+    Windows = 4,
     Oppo = 10,
     Realme = 11,
     Vivo = 20,
-    Xiaomi = 30,
-    OnePlus = 41,
-    Meizu = 50,
-    Samsung = 70,
-    Lenovo = 100,
+    Xiaomi = 30, // 30-39 range (excluding 32)
+    BlackShark = 32,
+    OnePlus = 41,   // 41-45
+    Meizu = 50,     // 50-59
+    Nubia = 60,     // 60-69
+    Samsung = 70,   // 70-75
+    ZTE = 80,       // 80-89
+    Smartisan = 90, // 90-95
+    Lenovo = 100,   // 100-109
+    Motorola = 110, // 110-119
+    NIO = 120,      // 120-129
+    Honor = 140,    // 140-149
+    ROG = 160,      // 0xA0 (-96)
+    Asus = 161,     // 0xA1..0xA9 (-95..-87) (Generic Asus in range)
+    Hisense = 170,  // 0xAA..0xB3 (-86..-77)
     // 自定义 ID 用于 Linux 设备
     Linux = 200,
 }
@@ -31,14 +42,25 @@ impl BrandId {
     pub fn name(&self) -> &'static str {
         match self {
             BrandId::Unknown => "Unknown",
+            BrandId::Windows => "Windows",
             BrandId::Oppo => "OPPO",
             BrandId::Realme => "realme",
             BrandId::Vivo => "vivo",
             BrandId::Xiaomi => "Xiaomi",
+            BrandId::BlackShark => "Black Shark",
             BrandId::OnePlus => "OnePlus",
             BrandId::Meizu => "Meizu",
+            BrandId::Nubia => "Nubia",
             BrandId::Samsung => "Samsung",
+            BrandId::ZTE => "ZTE",
+            BrandId::Smartisan => "Smartisan",
             BrandId::Lenovo => "Lenovo",
+            BrandId::Motorola => "Motorola",
+            BrandId::NIO => "NIO",
+            BrandId::Honor => "Honor",
+            BrandId::Asus => "Asus",
+            BrandId::ROG => "ROG",
+            BrandId::Hisense => "Hisense",
             BrandId::Linux => "Linux",
         }
     }
@@ -46,14 +68,42 @@ impl BrandId {
     /// 从 ID 值创建
     pub fn from_id(id: u8) -> Self {
         match id {
-            10 => BrandId::Oppo,
-            11 => BrandId::Realme,
+            4 | 21 => BrandId::Windows,
+            10..=19 => {
+                if id == 11 {
+                    BrandId::Realme
+                } else {
+                    BrandId::Oppo
+                }
+            }
             20..=29 => BrandId::Vivo,
-            30..=39 => BrandId::Xiaomi,
+            30..=39 => {
+                if id == 32 {
+                    BrandId::BlackShark
+                } else {
+                    BrandId::Xiaomi
+                }
+            }
             41..=45 => BrandId::OnePlus,
             50..=59 => BrandId::Meizu,
+            60..=69 => BrandId::Nubia,
             70..=75 => BrandId::Samsung,
+            80..=89 => BrandId::ZTE,
+            90..=95 => BrandId::Smartisan,
             100..=109 => BrandId::Lenovo,
+            110..=119 => BrandId::Motorola,
+            120..=129 => BrandId::NIO,
+            140..=149 => BrandId::Honor,
+            // Negative ranges mapped to u8 (e.g. -96 is 0xA0 = 160)
+            160..=169 => {
+                // -96 to -87 (0xA0 to 0xA9)
+                if id == 160 {
+                    BrandId::ROG
+                } else {
+                    BrandId::Asus
+                }
+            }
+            170..=179 => BrandId::Hisense, // -86 to -77 (0xAA to 0xB3)
             200 => BrandId::Linux,
             _ => BrandId::Unknown,
         }

@@ -134,7 +134,10 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> Result
                     }
                     KeyCode::Left | KeyCode::Right if app.settings_focus_brand => {
                         // Simple cycling through common brand IDs
-                        let ids = [10, 11, 20, 30, 41, 50, 70, 100, 200]; // Oppo, Realme, Vivo, Xiaomi, OnePlus, Meizu, Samsung, Lenovo, Linux
+                        let ids = [
+                            10, 11, 20, 30, 32, 41, 50, 60, 70, 80, 90, 100, 110, 120, 140, 161,
+                            170, 200, 4,
+                        ]; // Common Brand IDs including new ones
                         let current_id = app.temp_brand_id.id();
 
                         // Find index
