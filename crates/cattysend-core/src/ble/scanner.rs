@@ -428,7 +428,6 @@ impl BleScanner {
             if let Some(key) = manuf_data.keys().next() {
                 // Heuristic: Take the first manufacturer ID as brand ID
                 // Note: casting u16 to i16 to match legacy signed logic
-                // Note: casting u16 to i16 to match legacy signed logic
                 #[allow(clippy::cast_possible_wrap)]
                 let signed_id = *key as i16;
                 brand_id = Some(signed_id);

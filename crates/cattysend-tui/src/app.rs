@@ -282,11 +282,9 @@ impl App {
     }
 
     pub fn set_file_to_send(&mut self, path: String) {
+        let message = format!("待发送文件已设置: {}", path);
         self.file_to_send = Some(path);
-        self.add_log(
-            LogLevel::Info,
-            format!("待发送文件已设置: {}", self.file_to_send.as_ref().unwrap()),
-        );
+        self.add_log(LogLevel::Info, message);
     }
 
     pub fn run_sender(&mut self, device_addr: String, file_path: String) {
@@ -427,8 +425,7 @@ impl App {
 
         let tx = self.event_tx.clone();
 
-        // 扫面回调实现
-        // 使用核心提供的通用回调
+        // 使用核心提供的通用扫描回调
         let callback = ChannelScanCallback::new(tx.clone(), AppEvent::DeviceFound);
         let callback = Arc::new(callback);
 
@@ -473,7 +470,7 @@ impl App {
                 self.add_log(LogLevel::Info, msg);
             }
             AppEvent::ProgressUpdate { sent, total } => {
-                self.progress = sent as f64 / total as f64;
+                self.progress = progress_ratio(sent, total);
                 self.mode = AppMode::Transferring;
             }
             AppEvent::TransferComplete => {
@@ -584,5 +581,28 @@ impl App {
         while let Ok(event) = self.event_rx.try_recv() {
             self.handle_event(event);
         }
+    }
+}
+
+fn progress_ratio(sent: u64, total: u64) -> f64 {
+    if total == 0 {
+        0.0
+    } else {
+        sent as f64 / total as f64
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::progress_ratio;
+
+    #[test]
+    fn progress_ratio_returns_zero_when_total_is_zero() {
+        assert_eq!(progress_ratio(10, 0), 0.0);
+    }
+
+    #[test]
+    fn progress_ratio_divides_sent_by_total() {
+        assert_eq!(progress_ratio(25, 100), 0.25);
     }
 }

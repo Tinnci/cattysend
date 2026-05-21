@@ -621,7 +621,6 @@ name = "cattysend-gui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-trait",
  "cattysend-core",
  "dioxus",
  "dirs 5.0.1",
@@ -638,7 +637,6 @@ name = "cattysend-tui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-trait",
  "cattysend-core",
  "crossterm",
  "futures-util",
