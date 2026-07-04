@@ -1,0 +1,124 @@
+syntax = "proto3";
+
+package cattysend;
+
+// catty send 守护进程服务接口
+service CattySendService {
+  // 获取服务状态
+  rpc GetStatus (Empty) returns (DaemonStatus);
+
+  // 扫描设备流 (Server Streaming)
+  // 客户端请求开始扫描，服务器流式返回每个发现的设备
+  rpc ScanDevices (ScanRequest) returns (stream DiscoveredDevice);
+
+  // 停止扫描
+  rpc StopScan (Empty) returns (Empty);
+
+  // 发送文件 (Unary Request -> Streaming Response)
+  // 请求开始发送任务，服务器流式返回进度更新
+  rpc SendFile (SendRequest) returns (stream TransferProgress);
+
+  // 开启接收模式 (Unary Request -> Streaming Response)
+  // 请求进入接收模式，服务器流式返回状态更新
+  rpc StartReceive (ReceiveRequest) returns (stream ReceiveStatus);
+
+  // 停止接收/发送任务
+  rpc StopTask (Empty) returns (Empty);
+
+  // 更新配置并重载
+  rpc UpdateSettings (UpdateSettingsRequest) returns (DaemonStatus);
+}
+
+// 空消息
+message Empty {}
+
+// 服务状态
+message DaemonStatus {
+  // idle, scanning, advertising, transferring, receiving
+  string state = 1;
+  // 当前任务 ID (如果有)
+  optional string current_task_id = 2;
+  // 设备基本信息
+  DaemonDeviceInfo device_info = 3;
+}
+
+message DaemonDeviceInfo {
+  string name = 1;
+  string brand = 2; // e.g., "Xiaomi"
+  bool use_5ghz = 3;
+}
+
+// 扫描请求
+message ScanRequest {
+  // 扫描持续时间 (秒)，0 表示无限直到 StopScan
+  uint32 timeout_seconds = 1;
+}
+
+// 发现的设备
+message DiscoveredDevice {
+  string name = 1;
+  string address = 2;
+  // 信号强度
+  optional int32 rssi = 3;
+  // 品牌名称
+  string brand = 4;
+  // 品牌 ID
+  optional int32 brand_id = 5;
+  // 是否支持 5GHz
+  bool supports_5ghz = 6;
+}
+
+// 发送文件请求
+message SendRequest {
+  // 目标设备地址
+  string target_address = 1;
+  // 待发送文件路径列表
+  repeated string file_paths = 2;
+}
+
+// 传输方向
+enum TransferDirection {
+  SEND = 0;
+  RECEIVE = 1;
+}
+
+// 传输进度
+message TransferProgress {
+  // 传输状态: "connecting", "transferring", "completed", "error"
+  string status = 1;
+  // 当前已传输字节
+  uint64 bytes_transferred = 2;
+  // 总字节数
+  uint64 total_bytes = 3;
+  // 当前正在传输的文件名
+  string current_file = 4;
+  // 错误信息 (仅当 status="error" 时)
+  optional string error_message = 5;
+}
+
+// 接收请求
+message ReceiveRequest {
+  // 覆盖默认设备名 (可选)
+  optional string device_name = 1;
+}
+
+// 接收状态
+message ReceiveStatus {
+  // "advertising", "connecting", "receiving", "completed", "error"
+  string stage = 1;
+  // 当处于 advertising 时，显示的 connection code 或 SSID
+  optional string connection_info = 2;
+  // 进度信息 (当 stage="receiving" 时有效)
+  TransferProgress progress = 3;
+  // 传输完成后收到的文件本地存储路径
+  repeated string received_files = 4;
+}
+
+// 更新配置请求
+message UpdateSettingsRequest {
+  optional string device_name = 1;
+  optional int32 brand_id = 2;
+  optional bool use_5ghz = 3;
+  // 是否保存到磁盘
+  bool save_to_disk = 4;
+}

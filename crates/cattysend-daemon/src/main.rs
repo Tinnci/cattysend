@@ -6,7 +6,6 @@
 //! - HTTP/WebSocket 服务
 //! - 通过 Unix Socket 与 CLI 通信
 
-mod ipc;
 mod service;
 
 use anyhow::Result;
@@ -27,20 +26,9 @@ async fn main() -> Result<()> {
 
     tracing::info!("Cattysend Daemon starting...");
 
-    // 启动 IPC 服务器
-    let ipc_handle = tokio::spawn(ipc::run_ipc_server());
-
-    // 启动核心服务
-    let service_handle = tokio::spawn(service::run_service());
-
-    // 等待任一任务完成
-    tokio::select! {
-        res = ipc_handle => {
-            tracing::error!("IPC server exited: {:?}", res);
-        }
-        res = service_handle => {
-            tracing::error!("Core service exited: {:?}", res);
-        }
+    // 启动 gRPC 服务
+    if let Err(e) = service::run_service().await {
+        tracing::error!("服务运行错误: {:?}", e);
     }
 
     Ok(())

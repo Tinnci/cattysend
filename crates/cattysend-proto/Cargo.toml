@@ -1,0 +1,17 @@
+[package]
+name = "cattysend-proto"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+tonic = "0.12"
+prost = "0.13"
+prost-types = "0.13"
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+serde = { workspace = true }
+
+[build-dependencies]
+tonic-build = "0.12"

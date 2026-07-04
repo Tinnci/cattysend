@@ -6,6 +6,7 @@ members = [
     "crates/cattysend-cli",
     "crates/cattysend-tui",
     "crates/cattysend-gui",
+    "crates/cattysend-proto",
     "xtask",
 ]
 
