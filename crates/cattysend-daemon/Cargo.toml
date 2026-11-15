@@ -10,7 +10,7 @@ path = "src/main.rs"
 [dependencies]
 cattysend-core = { path = "../cattysend-core" }
 cattysend-proto = { path = "../cattysend-proto" }
-tonic = "0.12"
+tonic = "0.14"
 tokio-stream = { workspace = true }
 tokio = { workspace = true }
 async-trait = "0.1"
