@@ -17,7 +17,7 @@ path = "src/main.rs"
 cattysend-core = { path = "../cattysend-core" }
 
 # Dioxus framework
-dioxus = { version = "0.6", features = ["desktop"] }
+dioxus = { version = "0.7", features = ["desktop"] }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
@@ -32,7 +32,7 @@ anyhow = { workspace = true }
 # Utilities
 hostname = { workspace = true }
 dirs = { workspace = true }
-rfd = "0.17.2"
+rfd = "0.18.0"
 futures-util = "0.3"
 
 [features]

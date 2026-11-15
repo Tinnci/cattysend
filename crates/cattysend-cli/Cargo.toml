@@ -18,4 +18,4 @@ serde_json = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
 
-dirs = "5"
+dirs = "6"
